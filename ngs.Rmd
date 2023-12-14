@@ -1,0 +1,47 @@
+---
+title: "GeoMx NGS Pipeline Analysis"
+output: html_notebook
+---
+
+## Package Loading
+
+```{r}
+library(GeomxTools)
+library(SpatialExperiment)
+```
+
+## Load Data
+
+From: <https://bioconductor.org/packages/release/bioc/vignettes/GeomxTools/inst/doc/GeomxSet_coercions.html>
+
+Pkc from:<https://nanostring.com/products/geomx-digital-spatial-profiler/geomx-dsp-configuration-files/>
+
+Notes:
+
+-- phenoDataDccColName must contain names matching names of DCC files. This info is found in the "LabWorkesheet" Excel file, which I transfered into the AnnotationsDCC file
+
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "AnnotationsDCC.xlsx")
+
+geoMxSetData <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "index",
+                                          protocolDataColNames = c("Segment_Name_Label_",
+                                                                   "ROIComments",
+                                                                   "Group",
+                                                                   "Tissue",
+                                                                   "sample",
+                                                                   "ROI_Label_"))
+```
+
+##Coerce to SpatialExperiment
+
+```{r}
+spatialData <- as.SpatialExperiment(geoMxSetData)
+```
