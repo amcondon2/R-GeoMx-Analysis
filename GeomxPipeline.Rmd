@@ -1,0 +1,69 @@
+---
+title: "GeoMx NGS Pipeline Analysis"
+output: html_notebook
+---
+
+## Package Loading
+
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+
+library(knitr)
+library(dplyr)
+library(ggforce)
+library(stringr)
+```
+
+## Load Data
+
+Following https://bioconductor.org/packages/3.14/workflows/vignettes/GeoMxWorkflows/inst/doc/GeomxTools_RNA-NGS_Analysis.html
+
+Mouse WTA Pkc from:<https://nanostring.com/products/geomx-digital-spatial-profiler/geomx-dsp-configuration-files/>
+
+Notes:
+
+-- phenoDataDccColName must contain names matching names of DCC files. This info is found in the "LabWorkesheet" Excel file, which I transferred into the AnnotationsDCC file
+-- columns NOT included in the 'protocolDataColNames' is included in the phenotype data section
+
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "AnnotationsDCC.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "index",
+                                          protocolDataColNames = c("Segment_Name_Label_",
+                                                                   "ROIComments",
+                                                                   "ROI_Label_"))
+```
+
+##Visualize Setup
+```{r, fig.width = 15, fig.res = 900}
+count_mat <- count(pData(dataSet), sample, Group, Tissue, SegmentTags)
+count_mat[is.na(count_mat)] = "Geometric"
+count_mat$sample <- str_pad(as.character(count_mat$sample), 2, pad = "0")
+count_mat$SegmentTags <- sub("PanCK-", " PanCK- ", sub("PanCK+", " PanCK+ ", count_mat$SegmentTags, fixed = TRUE), fixed = TRUE)
+
+test_gr <- gather_set_data(count_mat, 1:4)
+test_gr$x <- factor(test_gr$x, labels = c("Sample", "Group", "Tissue", "Segment \n Tag"), levels = c("1", "2", "3", "4"))
+
+ggplot(test_gr, aes(x, id = id, split = y, value = n)) +
+    geom_parallel_sets(aes(fill = sample), alpha = 0.5, axis.width = 0.2) +
+    geom_parallel_sets_axes(axis.width = 0.2) +
+    geom_parallel_sets_labels(color = "white", size = 7) +
+    theme_classic(base_size = 20) + 
+    theme(legend.position = "none",
+          axis.ticks.y = element_blank(),
+          axis.line = element_blank(),
+          axis.text.y = element_blank()) +
+    scale_y_continuous(expand = expansion(0)) + 
+    scale_x_discrete(expand = expansion(0)) +
+    labs(x = "", y = "")
+```
