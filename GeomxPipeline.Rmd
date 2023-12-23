@@ -3,12 +3,14 @@ title: "GeoMx NGS Pipeline Analysis"
 output: html_notebook
 ---
 
-## Package Loading
+# Package Loading
 
 ```{r}
 library(NanoStringNCTools)
 library(GeomxTools)
 library(GeoMxWorkflows)
+
+library(RColorBrewer)
 
 library(knitr)
 library(dplyr)
@@ -26,7 +28,7 @@ library(umap)
 library(Rtsne)
 ```
 
-## Load Data
+# Load Data
 
 Following <https://bioconductor.org/packages/3.14/workflows/vignettes/GeoMxWorkflows/inst/doc/GeomxTools_RNA-NGS_Analysis.html>
 
@@ -36,7 +38,10 @@ Manual for data processing in general is at: <https://nanostring.com/wp-content/
 
 Notes:
 
--- phenoDataDccColName must contain names matching names of DCC files. This info is found in the "LabWorkesheet" Excel file, which I transferred into the AnnotationsDCC file -- columns NOT included in the 'protocolDataColNames' is included in the phenotype data section
+-- phenoDataDccColName must contain names matching names of DCC files. This info is found in the "LabWorkesheet" Excel file, which I transferred into the AnnotationsDCC file 
+-- columns NOT included in the 'protocolDataColNames' is included in the phenotype data section
+
+these samples are from 1st experment (experiment 2)??. Added sex column accordingly
 
 ```{r}
 datadir <- "data/"
@@ -54,7 +59,7 @@ dataSet <-
                                                                    "Aoi"))
 ```
 
-##Visualize Experiment
+#Visualize Experiment
 
 ```{r, fig.width = 15, dpi = 900}
 count_mat <- count(pData(dataSet), sample, Group, Tissue, Segment)
@@ -83,7 +88,7 @@ ggplot(test_gr, aes(x, id = id, split = y, value = n)) +
 dataSet <- shiftCountsOne(dataSet, useDALogic = TRUE) #shift expression counts with value 0 to 1
 ```
 
-## Segment QC
+# Segment QC
 
 I don't understand why lower values of the negative count geomean are flagged, shouldnt lower background signals be preferred? -- I think its because they the negative probe counts are used for determing the limit of quantification and they want to claim too much data may be excluded for low negative counts
 
@@ -116,7 +121,7 @@ QC_Summary["TOTAL FLAGS", ] <-
 
 ```
 
-# Plot Seg QC Features
+## Plot Seg QC Features
 
 ```{r}
 col_by <- "Segment"
@@ -209,7 +214,7 @@ dim(ProbeQCPassed)
 dataSet <- ProbeQCPassed 
 ```
 
-#Gene-Level Counts For WTA, most genes should have one probe except negative controls
+##Gene-Level Counts For WTA, most genes should have one probe except negative controls
 
 ```{r}
 length(unique(featureData(dataSet)[["TargetName"]]))
@@ -218,7 +223,7 @@ target_dataSet <- aggregateCounts(dataSet)
 dim(target_dataSet)
 exprs(target_dataSet)[1:10, 1:5]
 ```
-
+#Limit of Quantification
 ## Limit of Quantification Calculation
 
 needed to strip './' off of module name, changed from script
@@ -318,7 +323,7 @@ goi_df <- data.frame(
 goi_df
 ```
 
-### LOQ Gene Filtering
+## LOQ Gene Filtering
 
 cutoff represent keeping genes which are detected in at least xx% of segments. genes can be manually included as well
 
@@ -358,7 +363,7 @@ dim(target_dataSet)
 goi <- goi[goi %in% rownames(target_dataSet)]
 ```
 
-## Quantile Normalization
+# Quantile Normalization
 
 This paper has a problem with quartile normalization: <https://doi.org/10.1016/j.isci.2022.105760>
 
@@ -366,7 +371,7 @@ background normalization is also supposedly bad for RNA based experiments. Plan 
 
 see a clear seperation at a LOQ filtering step of 10%
 
-#### Visualize
+## Visualize
 ```{r}
 ann_of_interest <- "Tissue"
 Stat_data <-
@@ -410,7 +415,7 @@ btm_row <- plot_grid(plt2, plt3, nrow = 1, labels = c("B", ""),
 plot_grid(plt1, btm_row, ncol = 1, labels = c("A", ""))
 
 ```
-#### Perform Normaliziation
+## Perform Normaliziation
 
 normalization function is actually from geomxtools, not nanostringnctools. Dosen't seem to require specifying RNA as the data type like it says in the vinette
 ```{r}
@@ -427,9 +432,27 @@ boxplot(assayDataElement(target_dataSet[,1:50], elt = "q_norm"),
         col = "#2CA02C", main = "Q3 Norm Counts", log = "y", names = 1:50, xlab = "Segment", ylab = "Counts, Q3 Norm.")
 ```
 
-## Clustering Analysis
+# Clustering Analysis
 
-### UMAP
+## PCA
+```{r}
+library(factoextra)
+pc <- prcomp(t(log2(assayDataElement(target_dataSet, elt = "q_norm"))),
+               center = TRUE,
+               scale = TRUE)
+pData(target_dataSet)$PC1 <- pc$x[,1]
+pData(target_dataSet)$PC2 <- pc$x[,2]
+pData(target_dataSet)$PC3 <- pc$x[,3]
+
+fviz_screeplot(pc)
+
+ggplot(pData(target_dataSet), aes(x=PC1, y=PC2, color=Group, shape = Segment)) + geom_point(size = 3) + theme_bw() +
+  geom_text(aes(label = sample), hjust = 0, vjust = 1.5)
+
+plot_ly(x = target_dataSet$PC1, y=target_dataSet$PC2, z=target_dataSet$PC3, type="scatter3d", mode="markers", color = pData(target_dataSet)$Group, symbol = pData(target_dataSet)$Segment)
+```
+
+## UMAP
 ```{r}
 custom_umap <- umap::umap.defaults #constant seed
 custom_umap$random_state <- 42
@@ -452,7 +475,7 @@ library(plotly)
 
 plot_ly(x = umap_out$layout[,1], y=umap_out$layout[,2], z=umap_out$layout[,3], type="scatter3d", mode="markers", color = pData(target_dataSet)$Group, symbol = pData(target_dataSet)$Segment)
 ```
-#### UMAP Within Segment Type
+### UMAP / PCA Within Segment Type
 
 UMAP easily distingusishes between control and treated PanCK+ ROIs, but PanCK- ROIs are worse and Geometric ROIs have little seperation
 
@@ -463,7 +486,7 @@ custom_umap$random_state <- 42
 
 custom_umap$n_components <- 2
 
-panCkPosDataSet <- target_dataSet[, pData(target_dataSet)$Segment == "PanCK+"]
+panCkPosDataSet <- target_dataSet[, pData(target_dataSet)$Segment == "Full ROI"]
 PCKP_umap_out <- umap(t(log2(assayDataElement(panCkPosDataSet, elt = "q_norm"))),
 config = custom_umap)
 
@@ -480,9 +503,144 @@ pc <- prcomp(t(log2(assayDataElement(panCkPosDataSet, elt = "q_norm"))),
                scale = TRUE)
 pData(panCkPosDataSet)$PC1 <- pc$x[,1]
 pData(panCkPosDataSet)$PC2 <- pc$x[,2]
+pData(panCkPosDataSet)$PC3 <- pc$x[,3]
+
+
+fviz_screeplot(pc)
 
 ggplot(pData(panCkPosDataSet), aes(x=PC1, y=PC2, color=Group, shape = Segment)) + geom_point(size = 3) + theme_bw() +
   geom_text(aes(label = sample), hjust = 0, vjust = 1.5)
 
+plot_ly(x = panCkPosDataSet$PC1, y = panCkPosDataSet$PC2, z=panCkPosDataSet$PC3, type="scatter3d", mode="markers", color = pData(panCkPosDataSet)$Group, symbol = pData(panCkPosDataSet)$Segment)
+
+```
+
+## CV Clustering
+```{r}
+library(pheatmap)  # for pheatmap
+# create a log2 transform of the data for analysis
+assayDataElement(object = target_dataSet, elt = "log_q") <-
+    assayDataApply(target_dataSet, 2, FUN = log, base = 2, elt = "q_norm")
+
+# create CV function
+calc_CV <- function(x) {sd(x) / mean(x)}
+CV_dat <- assayDataApply(target_dataSet,
+                         elt = "log_q", MARGIN = 1, calc_CV)
+# show the highest CD genes and their CV values
+sort(CV_dat, decreasing = TRUE)[1:20]
+
+# Identify genes in the top 3rd of the CV values
+GOI <- names(CV_dat)[CV_dat > quantile(CV_dat, 0.8)]
+pheatmap(assayDataElement(target_dataSet[GOI, ], elt = "log_q"),
+         scale = "row", 
+         show_rownames = FALSE, show_colnames = FALSE,
+         border_color = NA,
+         clustering_method = "average",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(brewer.pal(name="RdBu", n = 11))(120),
+         annotation_col = 
+             pData(target_dataSet)[, c("Group", "Tissue", "Segment", "sample", "Sex")])
+```
+
+# LMM Differential Expression
+
+For control vs. treated, don't need random slope because they are mutually exclusive within samples
+-test variable should be Group (control vs treated)
+-tissue subsampling controlled for by including 'sample' as random intercept, ROIs from tissue from same mouse are not independent
+-should sex be an additional random intercept? although sample is already included and sex does not change within samples. this also creates subgroups which are not simply nested, not sure how LMM handle this
+  -- Including sex increases the number of identified genes
+  -- Identified genes are not as 'nice', fewer top genes have identified connections to GI disease
+  -- some highly significant genes are found regardless
+```{r}
+# convert test variables to factors
+pData(target_dataSet)$testGroup <-
+    factor(pData(target_dataSet)$Group, c("control", "test"))
+
+# run LMM:
+# formula follows conventions defined by the lme4 package
+results2 <- c()
+for(segment in c("Full ROI", "PanCK+", "PanCK-")) {
+  tic()
+    ind <- pData(target_dataSet)$Segment == segment
+    mixedOutmc <-
+        mixedModelDE(target_dataSet[, ind],
+                     elt = "log_q",
+                     modelFormula = ~ testGroup + (1 | sample) + (1 | Sex),
+                     groupVar = "testGroup",
+                     nCores = parallel::detectCores(),
+                     multiCore = FALSE)
+    
+    # format results as data.frame
+    r_test <- do.call(rbind, mixedOutmc["lsmeans", ])
+    tests <- rownames(r_test)
+    r_test <- as.data.frame(r_test)
+    r_test$Contrast <- tests
+    
+    # use lapply in case you have multiple levels of your test factor to
+    # correctly associate gene name with it's row in the results table
+    r_test$Gene <- 
+        unlist(lapply(colnames(mixedOutmc),
+                      rep, nrow(mixedOutmc["lsmeans", ][[1]])))
+    r_test$Subset <- segment
+    r_test$FDR <- p.adjust(r_test$`Pr(>|t|)`, method = "fdr")
+    r_test <- r_test[, c("Gene", "Subset", "Contrast", "Estimate", 
+                         "Pr(>|t|)", "FDR")]
+    results2 <- rbind(results2, r_test)
+    toc()
+}
+```
+
+## Volcano Plot Results
+```{r, fig.width=12, dpi=900}
+library(ggrepel) 
+# Categorize Results based on P-value & FDR for plotting
+results2$Color <- "NS or FC < 0.5"
+results2$Color[results2$`Pr(>|t|)` < 0.05] <- "P < 0.05"
+results2$Color[results2$FDR < 0.05] <- "FDR < 0.05"
+results2$Color[results2$FDR < 0.001] <- "FDR < 0.001"
+results2$Color[abs(results2$Estimate) < 0.5] <- "NS or FC < 0.5"
+results2$Color <- factor(results2$Color,
+                        levels = c("NS or FC < 0.5", "P < 0.05",
+                                   "FDR < 0.05", "FDR < 0.001"))
+
+# pick top genes for either side of volcano to label
+# order genes for convenience:
+results2$invert_P <- (-log10(results2$`Pr(>|t|)`)) * sign(results2$Estimate)
+top_g <- c()
+for(seg in c("PanCK-", "PanCK+", "Full ROI")) {
+    ind <- results2$Subset == seg
+    top_g <- c(top_g,
+               results2[ind, 'Gene'][
+                   order(results2[ind, 'invert_P'], decreasing = TRUE)[1:15]],
+               results2[ind, 'Gene'][
+                   order(results2[ind, 'invert_P'], decreasing = FALSE)[1:15]])
+}
+top_g <- unique(top_g)
+results2 <- results2[, -1*ncol(results2)] # remove invert_P from matrix
+
+ggplot(results2,
+       aes(x = Estimate, y = -log10(`Pr(>|t|)`),
+           color = Color, label = Gene)) +
+    geom_vline(xintercept = c(0.5, -0.5), lty = "dashed") +
+    geom_hline(yintercept = -log10(0.05), lty = "dashed") +
+    geom_point() +
+    labs(x = "Enriched in Control <- log2(FC) -> Enriched in Treated",
+         y = "Significance, -log10(P)",
+         color = "Significance") +
+    scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                  `FDR < 0.05` = "lightblue",
+                                  `P < 0.05` = "orange2",
+                                  `NS or FC < 0.5` = "gray"),
+                       guide = guide_legend(override.aes = list(size = 4))) +
+    scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+    geom_text_repel(data = subset(results2, Gene %in% top_g & FDR < 0.001),
+                    size = 4, point.padding = 0.15, color = "black",
+                    min.segment.length = .1, box.padding = .2, lwd = 2,
+                    max.overlaps = 50) +
+    theme_bw(base_size = 16) +
+    theme(legend.position = "bottom") +
+    facet_wrap(~Subset, scales = "free_y")
 ```
 
