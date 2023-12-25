@@ -26,6 +26,10 @@ library(cowplot)
 
 library(umap)
 library(Rtsne)
+
+library(plotly)
+
+library(tictoc)
 ```
 
 # Load Data
@@ -515,7 +519,7 @@ plot_ly(x = panCkPosDataSet$PC1, y = panCkPosDataSet$PC2, z=panCkPosDataSet$PC3,
 
 ```
 
-## CV Clustering
+## CV Clustering / Heatmap
 ```{r}
 library(pheatmap)  # for pheatmap
 # create a log2 transform of the data for analysis
@@ -545,8 +549,10 @@ pheatmap(assayDataElement(target_dataSet[GOI, ], elt = "log_q"),
 ```
 
 # LMM Differential Expression
+Manual for lmm fitting: see Table 2 for construction of equation.
+https://cran.r-project.org/web/packages/lme4/vignettes/lmer.pdf
 
-For control vs. treated, don't need random slope because they are mutually exclusive within samples
+For control vs. treated, don't need random slope because they are mutually exclusive within samples (according to NanoString, unclear why from a model perspective / mathematically)
 -test variable should be Group (control vs treated)
 -tissue subsampling controlled for by including 'sample' as random intercept, ROIs from tissue from same mouse are not independent
 -should sex be an additional random intercept? although sample is already included and sex does not change within samples. this also creates subgroups which are not simply nested, not sure how LMM handle this
@@ -556,7 +562,7 @@ For control vs. treated, don't need random slope because they are mutually exclu
 ```{r}
 # convert test variables to factors
 pData(target_dataSet)$testGroup <-
-    factor(pData(target_dataSet)$Group, c("control", "test"))
+    factor(pData(target_dataSet)$Group, c("test", "control"))
 
 # run LMM:
 # formula follows conventions defined by the lme4 package
@@ -642,5 +648,73 @@ ggplot(results2,
     theme_bw(base_size = 16) +
     theme(legend.position = "bottom") +
     facet_wrap(~Subset, scales = "free_y")
+```
+
+## Plot Genes of Interest
+
+required as.numeric() for assayDataElement, not sure why
+
+```{r}
+kable(subset(results2, Gene %in% c('Por','Fads3')), row.names = FALSE)
+
+ggplot(pData(target_dataSet),
+       aes(x = Segment, fill = Segment,
+           y = as.numeric(assayDataElement(target_dataSet["Alcam", ],
+                                elt = "q_norm")))) +
+    geom_boxplot() +
+    geom_jitter(width = .2) +
+    labs(y = "Por Expression") +
+    scale_y_continuous(trans = "log2") +
+    facet_wrap(~Group) +
+    theme_bw()
+```
+
+## Plot Heatmap of Significant Genes
+```{r}
+# select top significant genes based on significance, plot with pheatmap
+GOI <- unique(subset(results2, `FDR` < 0.001)$Gene)
+pheatmap(log2(assayDataElement(target_dataSet[GOI, ], elt = "q_norm")),
+         scale = "row", 
+         show_rownames = FALSE, show_colnames = FALSE,
+         border_color = NA,
+         clustering_method = "average",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         cutree_cols = 2, cutree_rows = 2,
+         breaks = seq(-3, 3, 0.05),
+         color = colorRampPalette(brewer.pal(name="RdBu", n = 11))(120),
+         annotation_col = 
+             pData(target_dataSet)[, c("Group", "Tissue", "Segment", "sample", "Sex")])
+```
+## MA Plot
+```{r, fig.height=12}
+results2$MeanExp <-
+    rowMeans(assayDataElement(target_dataSet,
+                              elt = "q_norm"))
+
+top_g2 <- results2$Gene[results2$Gene %in% top_g &
+                           results2$FDR < 0.001 &
+                           abs(results2$Estimate) > .5 &
+                           results2$MeanExp > quantile(results2$MeanExp, 0.9)]
+
+ggplot(subset(results2, !Gene %in% neg_probes),
+       aes(x = MeanExp, y = Estimate,
+           size = -log10(`Pr(>|t|)`),
+           color = Color, label = Gene)) +
+    geom_hline(yintercept = c(0.5, -0.5), lty = "dashed") +
+    scale_x_continuous(trans = "log2") +
+    geom_point(alpha = 0.5) + 
+    labs(y = "Enriched in Control <- log2(FC) -> Enriched in Treated",
+         x = "Mean Expression",
+         color = "Significance") +
+    scale_color_manual(values = c(`FDR < 0.001` = "dodgerblue",
+                                  `FDR < 0.05` = "lightblue",
+                                  `P < 0.05` = "orange2",
+                                  `NS or FC < 0.5` = "gray")) +
+    geom_text_repel(data = subset(results2, Gene %in% top_g2),
+                    size = 4, point.padding = 0.15, color = "black",
+                    min.segment.length = .1, box.padding = .2, lwd = 2) +
+    theme_bw(base_size = 16) +
+    facet_wrap(~Subset, nrow = 3, ncol = 1)
 ```
 

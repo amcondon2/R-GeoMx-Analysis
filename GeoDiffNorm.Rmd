@@ -1,0 +1,261 @@
+---
+title: "GeoMx Analysis, GeoDiff Normalization"
+output: html_notebook
+---
+
+# Package Loading
+
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(GeoDiff)
+library(Biobase)
+library(reshape2)
+
+library(RColorBrewer)
+
+library(knitr)
+library(dplyr)
+library(ggforce)
+library(stringr)
+
+library(ggplot2)
+
+library(scales)
+
+library(reshape2)
+library(cowplot)
+
+library(umap)
+library(Rtsne)
+
+library(plotly)
+
+library(tictoc)
+```
+
+# Load Data
+
+Following <https://bioconductor.org/packages/3.14/workflows/vignettes/GeoMxWorkflows/inst/doc/GeomxTools_RNA-NGS_Analysis.html>
+and https://bioconductor.org/packages/release/bioc/vignettes/GeoDiff/inst/doc/Workflow_WTA_kidney.html
+for alternate normalization approach
+
+Preprint on GeoDiff normalization:
+https://www.biorxiv.org/content/10.1101/2022.05.26.493637v1.full
+
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+```
+
+# Background Modeling
+
+```{r, fig.width=10}
+featureType(dataSet)
+paste("## of Negative Probes:", sum(fData(dataSet)$Negative))
+
+negCntrlExprs <- exprs(negativeControlSubset(dataSet))
+countsNegCntrolExprs <- setNames(melt(negCntrlExprs), c("Gene", "DCCName", "count"))
+countsNegCntrolExprs$Segment <- pData(negativeControlSubset(dataSet))[countsNegCntrolExprs$DCCName,]$Segment
+countsNegCntrolExprs$sample <- pData(negativeControlSubset(dataSet))[countsNegCntrolExprs$DCCName,]$sample
+countsNegCntrolExprs$Area <- pData(negativeControlSubset(dataSet))[countsNegCntrolExprs$DCCName,]$Area
+countsNegCntrolExprs$NovogeneID <- pData(negativeControlSubset(dataSet))[countsNegCntrolExprs$DCCName,]$NovogeneID
+
+ggplot(countsNegCntrolExprs, aes(x = reorder(NovogeneID, count, max), y = count + 1 , color = as.factor(Segment)) ) +
+  geom_boxplot() +
+  #coord_trans(y = "log10") +
+  theme_bw() + 
+  #scale_x_discrete(expand = c(-1, 0)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#dataSet <- fitPoisBG(dataSet, groupvar = "Segment")
+dataSet <- fitPoisBG(dataSet)
+
+summary(pData(dataSet)$sizefact)
+summary(fData(dataSet)$featfact[fData(dataSet)$Negative])
+
+set.seed(123)
+dataSet_diag <- diagPoisBG(dataSet, split = FALSE)
+
+notes(dataSet_diag)$disper
+
+which(assayDataElement(dataSet_diag, "low_outlier") == 1, arr.ind = TRUE)
+which(assayDataElement(dataSet_diag, "up_outlier") == 1, arr.ind = TRUE)
+```
+
+# Aggregate
+
+```{r}
+all0probeidx <- which(rowSums(exprs(dataSet))==0)
+if (length(all0probeidx) > 0) {
+    dataSet <- dataSet[-all0probeidx, ]
+}
+dataSet <- aggreprobe(dataSet, use = "cor")
+```
+
+# Target QC
+## Score Test
+```{r}
+dataSet <- BGScoreTest(dataSet, split = FALSE, useprior = TRUE)
+dim(fData(dataSet))[[1]]
+sum(fData(dataSet)[["pvalues"]] < 1e-3, na.rm = TRUE)
+```
+
+## Estimate Size Factor
+```{r}
+dataSet <- fitNBth(dataSet, split = FALSE)
+
+features_high <- rownames(fData(dataSet))[fData(dataSet)$feature_high_fitNBth == 1]
+
+length(features_high)
+
+bgMean <- mean(fData(dataSet)$featfact, na.rm = TRUE)
+notes(dataSet)[["threshold"]]
+bgMean
+
+cor(dataSet$sizefact, dataSet$sizefact_fitNBth)
+ggplot(dataSet, aes(x = sizefact, y = sizefact_fitNBth, color = Segment, shape = Segment)) + 
+  geom_point() +
+  geom_abline(slope=1, intercept=0) + 
+  theme_bw()
+
+posdat <- dataSet[-which(fData(dataSet)$CodeClass == "Negative"), ]
+posdat <- exprs(posdat)
+
+quan <- sapply(c(0.75, 0.8, 0.9, 0.95), function(y)
+  apply(posdat, 2, function(x) quantile(x, probs = y)))
+
+corrs <- apply(quan, 2, function(x) cor(x, dataSet$sizefact_fitNBth))
+names(corrs) <- c(0.75, 0.8, 0.9, 0.95)
+
+corrs
+
+quan75 <- apply(posdat, 2, function(x) quantile(x, probs = 0.75))
+
+dataSet <- QuanRange(dataSet, split = FALSE, probs = c(0.75, 0.8, 0.9, 0.95))
+
+corrs <- apply(pData(dataSet)[, as.character(c(0.75, 0.8, 0.9, 0.95))], 2, function(x)
+  cor(x, dataSet$sizefact_fitNBth))
+
+names(corrs) <- c(0.75, 0.8, 0.9, 0.95)
+
+corrs
+```
+##Sample QC
+```{R}
+ROIs_high <- sampleNames(dataSet)[which((quantile(fData(dataSet)[["para"]][, 1],
+                                                  probs = 0.90, na.rm = TRUE) - 
+                                          notes(dataSet)[["threshold"]])*dataSet$sizefact_fitNBth>2)]
+
+features_all <- rownames(posdat)
+```
+
+# Normalization
+```{r}
+names(assayData(dataSet))
+
+dataSet <- fitPoisthNorm(object = dataSet,
+                        ROIs_high = ROIs_high,
+                        threshold_mean = bgMean,
+                        sizescalebythreshold = TRUE)
+```
+## Method Comparison
+### Q3
+```{r}
+norm_dat_backqu75 <- sweep(posdat[, ROIs_high], 2,
+                           (dataSet[, ROIs_high]$sizefact * bgMean),
+                           FUN = "-") %>%
+  sweep(., 2, quan75[ROIs_high], FUN = "/") %>%
+  pmax(., 0) %>%
+  `+`(., 0.01) %>%
+  log2()
+
+dat_plot <- cbind(pData(dataSet)[ROIs_high, c("Segment", "Group")],
+                  t(norm_dat_backqu75[features_all, ]))
+
+dat_plot <- cbind(dat_plot, ROI_ID = ROIs_high)
+
+dat_plot <- melt(dat_plot, id.vars = c("ROI_ID", "Segment", "Group"))
+
+ggplot(dat_plot, aes(x = value)) +
+  geom_density(aes(fill = Group, group = ROI_ID, alpha = 0.01)) +
+  facet_grid(~`Segment`) +
+  ggtitle("Q3 Normalization")+
+  labs(x = "Q3 Normalized Value (log2)")
+```
+
+### Poission
+```{r}
+annot <- pData(dataSet)
+
+dat_plot <- cbind(annot[ROIs_high, c("Segment", "Group")],
+                  t(assayDataElement(dataSet[features_high, ROIs_high], "normmat")))
+
+dat_plot <- cbind(dat_plot, ROI_ID = ROIs_high)
+
+dat_plot <- melt(dat_plot, id.vars = c("ROI_ID", "Segment", "Group"))
+
+ggplot(dat_plot, aes(x = value)) +
+  geom_density(aes(fill = Group, group = ROI_ID, alpha = 0.01)) +
+  facet_wrap(~Segment) +
+  ggtitle("Poisson threshold normalization")+
+  labs(x = "Poisson Threshold Normalized Value (log2)")
+```
+
+# Clustering
+```{r}
+dat <- t(norm_dat_backqu75[features_high, ])
+dat_pca <- prcomp(dat, center = TRUE, scale. = TRUE)
+dat <- as.data.frame(dat)
+
+dat$PC1 <- dat_pca$x[, 1]
+dat$PC2 <- dat_pca$x[, 2]
+dat$Group <- annot$Group[match(ROIs_high, colnames(posdat))]
+dat$Segment <- annot$Segment[match(ROIs_high, colnames(posdat))]
+#dat$region <- annot$region[match(ROIs_high, colnames(posdat))]
+dat$sizeratio <- dataSet[, ROIs_high]$sizefact_fitNBth / dataSet[, ROIs_high]$sizefact
+
+ggplot(data = dat, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = Group, shape = Segment)) +
+  theme_bw()+
+  labs(title = "Q3 Normalized Data")
+
+
+
+dat <- t(assayDataElement(dataSet[features_high, ROIs_high],"normmat"))
+dat_pca <- prcomp(dat, center = TRUE, scale. = TRUE)
+dat <- as.data.frame(dat)
+
+dat$PC1 <- dat_pca$x[, 1]
+dat$PC2 <- dat_pca$x[, 2]
+dat$Segment <- annot$Segment[match(ROIs_high, colnames(posdat))]
+dat$Group <- annot$Group[match(ROIs_high, colnames(posdat))]
+#dat$region <- annot$region[match(ROIs_high, colnames(posdat))]
+dat$sizeratio <- dataSet[, ROIs_high]$sizefact_fitNBt / dataSet[, ROIs_high]$sizefact
+
+ggplot(data = dat, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = Group, shape = Segment)) +
+  theme_bw()+
+  labs(title = "Poisson Threshold Normalized Data")
+
+ggplot(data = dat, aes(x = PC1, y = PC2)) +
+  geom_point(aes(colour = log2(sizeratio))) +
+  theme_bw()+
+  scale_color_gradient2(high = "gold", mid = "grey50", low = "darkblue", midpoint = 0.2)+
+  labs(title = "Poisson Threshold Normalized Data")
+```
+
