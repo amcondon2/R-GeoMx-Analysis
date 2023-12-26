@@ -1,0 +1,143 @@
+---
+title: "standR Pipeline"
+output: html_notebook
+---
+
+# Import Libraries
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+
+library(SpatialExperiment)
+library(standR)
+
+library(ggplot2)
+library(ggalluvial)
+
+library(scater)
+```
+
+
+# Load Data
+
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+```
+
+## Coerce to SpatialExperiment Format
+
+```{r}
+dataSet_target <- aggregateCounts(dataSet)
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
+assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+
+plotSampleInfo(seDataSet, column2plot = c("sample","Tissue","Segment","Group"))
+
+```
+
+# QC
+## Gene Level
+
+```{r}
+dim(seDataSet)
+
+seDataSet <- addPerROIQC(seDataSet, rm_genes=TRUE, sample_fraction = 0.9, min_count = 5)
+
+dim(seDataSet)
+metadata(seDataSet) |> names()
+
+
+plotGeneQC(seDataSet, ordannots = "Segment", col = Segment, point_size = 2, top_n = 9)
+```
+## Roi Level
+
+On RLE plots:
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5798764/
+
+
+```{r}
+plotROIQC(seDataSet, x_axis="Nuclei", y_axis = "lib_size",  x_lab = "Nuclei", x_threshold = 50, color = Segment)
+
+plotROIQC(seDataSet, x_axis="Area", y_axis = "lib_size", x_lab = "Area", color = Segment)
+
+
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 2) #counts
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) #logcounts
+```
+# Dimension Reduction
+
+```{r}
+set.seed(100)
+
+seDataSet <- scater::runPCA(seDataSet, scale = TRUE, assay.type = 3)
+
+pca_results <- reducedDim(seDataSet, "PCA")
+
+plotScreePCA(seDataSet, precomputed = pca_results)
+drawPCA(seDataSet, precomputed = pca_results, col = Group)
+
+plotPCAbiplot(seDataSet, n_loadings = 10, precomputed = pca_results, col = Segment)
+
+standR::plotMDS(seDataSet, assay = 3, color = Segment)
+```
+
+# Normalization
+```{r}
+seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+seDataSet_size <- geomxNorm(seDataSet, method = "sizefactor")
+plotRLExpr(seDataSet, color = Segment, assay = "logcounts") + ggtitle("Raw")
+plotRLExpr(seDataSet_tmm, color = Segment, assay = "logcounts") + ggtitle("TMM")
+plotRLExpr(seDataSet_size, color = Segment, assay = "logcounts") + ggtitle("SizeFactor")
+
+set.seed(100)
+
+seDataSet_tmm <- scater::runPCA(seDataSet_tmm)
+
+pca_results_tmm <- reducedDim(seDataSet_tmm, "PCA")
+
+plotPCAbiplot(seDataSet_tmm, n_loadings = 10, precomputed = pca_results_tmm, col = Segment)
+
+plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = Segment, n_dimension = 4)
+plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = Group, n_dimension = 4)
+plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = as.factor(sample), n_dimension = 4)
+
+se_list = list(seDataSet, seDataSet_tmm, seDataSet_size)
+
+#plotClusterEvalStats(se_list, bio_feature_name = "Group", batch_feature_name = "Segment", data_names = c("Raw","TMMNorm", "SizeFactor"))
+```
+
+#Spatial Deconvolution
+
+need to check negative probes are imported correctly
+
+```{r}
+spd <- prepareSpatialDecon(seDataSet_tmm)
+
+mouseIntestine <- download_profile_matrix(species = "Mouse",
+                                       age_group = "Adult", 
+                                       matrixname = "SmallIntestine_MCA")
+res <- spatialdecon(norm = spd$normCount,
+                   bg = spd$backGround,
+                   X = mouseIntestine,
+                   align_genes = TRUE)
+
+heatmap(t(res$beta), cexCol = 0.5, cexRow = 0.7)
+
+```
+
