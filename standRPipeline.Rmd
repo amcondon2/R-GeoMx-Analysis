@@ -3,6 +3,9 @@ title: "standR Pipeline"
 output: html_notebook
 ---
 
+Following https://davislaboratory.github.io/GeoMXAnalysisWorkflow/articles/GeoMXAnalysisWorkflow.htm
+
+
 # Import Libraries
 ```{r}
 library(NanoStringNCTools)
@@ -11,10 +14,19 @@ library(GeomxTools)
 library(SpatialExperiment)
 library(standR)
 
+library(dplyr)
+library(tidyverse)
+
 library(ggplot2)
 library(ggalluvial)
 
 library(scater)
+
+library(limma)
+library(edgeR)
+
+library(msigdb)
+library(GSEABase)
 ```
 
 
@@ -98,33 +110,243 @@ standR::plotMDS(seDataSet, assay = 3, color = Segment)
 ```
 
 # Normalization
+
+Some methods need gene lengths, look into adding these to data with biomaRt package
+
 ```{r}
 seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
 seDataSet_size <- geomxNorm(seDataSet, method = "sizefactor")
+seDataSet_quart <- geomxNorm(seDataSet, method = "upperquartile")
+seDataSet_cpm <- geomxNorm(seDataSet, method = "CPM")
+
 plotRLExpr(seDataSet, color = Segment, assay = "logcounts") + ggtitle("Raw")
 plotRLExpr(seDataSet_tmm, color = Segment, assay = "logcounts") + ggtitle("TMM")
 plotRLExpr(seDataSet_size, color = Segment, assay = "logcounts") + ggtitle("SizeFactor")
+plotRLExpr(seDataSet_quart, color = Segment, assay = "logcounts") + ggtitle("Upper Quartile")
+plotRLExpr(seDataSet_cpm, color = Segment, assay= "logcounts") + ggtitle("CPM")
 
+```
+
+#Comparison of Normalization Techniques 
+
+```{r}
 set.seed(100)
-
 seDataSet_tmm <- scater::runPCA(seDataSet_tmm)
-
 pca_results_tmm <- reducedDim(seDataSet_tmm, "PCA")
 
-plotPCAbiplot(seDataSet_tmm, n_loadings = 10, precomputed = pca_results_tmm, col = Segment)
+set.seed(100)
+seDataSet_size <- scater::runPCA(seDataSet_size)
+pca_results_size <- reducedDim(seDataSet_size, "PCA")
+
+set.seed(100)
+seDataSet_quart <- scater::runPCA(seDataSet_quart)
+pca_results_quart <- reducedDim(seDataSet_quart, "PCA")
+
+set.seed(100)
+seDataSet_cpm <- scater::runPCA(seDataSet_cpm)
+pca_results_cpm <- reducedDim(seDataSet_cpm, "PCA")
+
+plotPCAbiplot(seDataSet, n_loadings = 10, precomputed = pca_results, col = Segment) + ggtitle("Raw") + scale_y_reverse()
+plotPCAbiplot(seDataSet_tmm, n_loadings = 10, precomputed = pca_results_tmm, col = Segment) + ggtitle("TMM")
+plotPCAbiplot(seDataSet_size, n_loadings = 10, precomputed = pca_results_size, col = Segment) + ggtitle("Size Factor")
+plotPCAbiplot(seDataSet_quart, n_loadings = 10, precomputed = pca_results_quart, col = Segment) + ggtitle("Quartile")
+plotPCAbiplot(seDataSet_cpm, n_loadings = 10, precomputed = pca_results_cpm, col = Segment) + ggtitle("CPM") + scale_y_reverse()
+
 
 plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = Segment, n_dimension = 4)
 plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = Group, n_dimension = 4)
 plotPairPCA(seDataSet_tmm, precomputed = pca_results_tmm, color = as.factor(sample), n_dimension = 4)
 
-se_list = list(seDataSet, seDataSet_tmm, seDataSet_size)
+se_list = list(seDataSet, seDataSet_tmm, seDataSet_size, seDataSet_quart, seDataSet_cpm)
 
-#plotClusterEvalStats(se_list, bio_feature_name = "Group", batch_feature_name = "Segment", data_names = c("Raw","TMMNorm", "SizeFactor"))
+plotClusterEvalStats(se_list, bio_feature_name = "Segment", batch_feature_name = "sample", data_names = c("Raw","TMMNorm", "SizeFactor", "Quartile", "CPM"))
 ```
+# Differential Expression with Limma-Voom
+
+For design and contrast matrices:
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7873980/
+
+its unclear where to apply the normalisation weights. do they need to be copied into the dgelist object, included in the model matrix, or specified to voom?
+
+-voom should take care of it: "If counts is a DGEList object from the edgeR package, then voom will use the normalization factors found in the object when computing the logCPM values."
+
+## Compute
+
+```{r}
+seDataSet_tmm_pckP <- seDataSet_tmm[,seDataSet_tmm$Segment == "PanCK+"]
+
+dge <- SE2DGEList(seDataSet_tmm_pckP)
+dge[["samples"]][["norm.factors"]] <- metadata(seDataSet_tmm_pckP)$norm.factor[seDataSet_tmm$Segment == "PanCK+"] #set normalization factors
+colData(seDataSet_tmm)$normFactor <- metadata(seDataSet_tmm_pckP)$norm.factor[seDataSet_tmm$Segment == "PanCK+"]
+
+#design <- model.matrix(~0 + Group + sample + Segment, data = colData(seDataSet_tmm))
+design <- model.matrix(~0 + Group + sample, data = colData(seDataSet_tmm_pckP))
+design <- model.matrix(~0 + Group, data = colData(seDataSet_tmm_pckP))
+colnames(design) <- gsub("+","Pos",colnames(design), fixed = TRUE)
+colnames(design) <- gsub("-","Neg",colnames(design), fixed = TRUE)
+colnames(design) <- gsub("Group","",colnames(design), fixed = TRUE)
+
+contrasts <- makeContrasts(CvT = test - control, levels = colnames(design))
+
+keep <- filterByExpr(dge, design)
+table(keep)
+rownames(dge)[!keep]
+
+dge_all <- dge[keep, ]
+
+dge_all <- estimateDisp(dge_all, design = design, robust = TRUE)
+
+
+plotBCV(dge_all, legend.position = "topleft", ylim = c(0, 1.3))
+bcv_df <- data.frame(
+  'BCV' = sqrt(dge_all$tagwise.dispersion),
+  'AveLogCPM' = dge_all$AveLogCPM,
+  'gene_id' = rownames(dge_all)
+)
+
+highbcv <- bcv_df$BCV > 0.8
+highbcv_df <- bcv_df[highbcv, ]; points(highbcv_df$AveLogCPM, highbcv_df$BCV, col = "red"); text(highbcv_df$AveLogCPM, highbcv_df$BCV, labels = highbcv_df$gene_id, pos = 4)
+
+v <- voom(dge_all, design, plot = TRUE) 
+
+cor <- duplicateCorrelation(object=dge_all, design = design)
+
+fit <- lmFit(v)
+
+fit_contrast <- contrasts.fit(fit, contrasts = contrasts)
+
+efit <- eBayes(fit_contrast, robust = TRUE)
+
+results_efit<- decideTests(efit, p.value = 0.05)
+summary_efit <- summary(results_efit)
+
+summary_efit
+```
+## Visualize
+
+```{r}
+library(ggrepel)
+library(tidyverse)
+
+de_results_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf)
+
+de_genes_toptable_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf, p.value = 0.05)
+
+de_results_BvT %>% 
+  mutate(DE = ifelse(logFC > 0 & adj.P.Val <0.05, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<0.05, "DOWN", "NOT DE"))) %>%
+  ggplot(aes(AveExpr, logFC, col = DE)) + 
+  geom_point(shape = 1, size = 1) + 
+  geom_text_repel(data = de_genes_toptable_BvT %>% 
+                    mutate(DE = ifelse(logFC > 0 & adj.P.Val <0.05, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<0.05, "DOWN", "NOT DE"))) %>%
+                    rownames_to_column(), aes(label = rowname)) +
+  theme_bw() +
+  xlab("Average log-expression") +
+  ylab("Log-fold-change") +
+  ggtitle("Treated vs. Control (limma-voom)") +
+  scale_color_manual(values = c("blue","gray","red")) +
+  theme(text = element_text(size=15))
+
+library(DT)
+
+updn_cols <- c(RColorBrewer::brewer.pal(6, 'Greens')[2], RColorBrewer::brewer.pal(6, 'Purples')[2])
+
+de_genes_toptable_BvT %>% 
+  dplyr::select(c("logFC", "AveExpr", "P.Value", "adj.P.Val")) %>%
+  DT::datatable(caption = 'B cell zone vs. T cell zone in Lymph node (limma-voom)') %>%
+  DT::formatStyle('logFC',
+                valueColumns = 'logFC',
+                backgroundColor = DT::styleInterval(0, rev(updn_cols))) %>%
+  DT::formatSignif(1:4, digits = 4)
+```
+
+# Differential Pathway Analysis
+
+## load database
+```{r}
+msigdb_mm <- getMsigdb(version = '7.5', org = "mm")
+msigdb_mm <- appendKEGG(msigdb_mm)
+```
+## Compute with Fry
+
+should look into limma::camera as is more suitable for 'fishing' for pathways
+
+https://bioconductor.org/packages/release/data/experiment/vignettes/msigdb/inst/doc/msigdb.html#download-data-from-the-msigdb-r-package
+
+```{r}
+sc <- listSubCollections(msigdb_mm)
+
+#gsc <- c(subsetCollection(msigdb_mm, c('h')),
+#  subsetCollection(msigdb_mm, 'c2', sc[grepl("^CP:",sc)]),
+#  subsetCollection(msigdb_mm, 'c5', sc[grepl("^GO:",sc)]))
+#  gsc <- GeneSetCollection(gsc)
+
+gsc <- GeneSetCollection(msigdb_mm)
+
+fry_indices <- ids2indices(lapply(gsc, geneIds), rownames(v), remove.empty = FALSE)
+names(fry_indices) <- sapply(gsc, setName)
+
+gsc_category <- sapply(gsc, function(x) bcCategory(collectionType(x)))
+gsc_category <- gsc_category[sapply(fry_indices, length) > 5]
+
+gsc_subcategory <- sapply(gsc, function(x) bcSubCategory(collectionType(x)))
+gsc_subcategory <- gsc_subcategory[sapply(fry_indices, length) > 5]
+
+fry_indices <- fry_indices[sapply(fry_indices, length) > 5]
+
+names(gsc_category) = names(gsc_subcategory) = names(fry_indices)
+
+fry_indices_cat <- split(fry_indices, gsc_category[names(fry_indices)])
+fry_res_out <- lapply(fry_indices_cat, function (x) {
+  limma::fry(v, index = x, design = design, contrast = contrasts[,1], robust = TRUE)
+})
+
+post_fry_format <- function(fry_output, gsc_category, gsc_subcategory){
+  names(fry_output) <- NULL
+  fry_output <- do.call(rbind, fry_output)
+  fry_output$GenesetName <- rownames(fry_output)
+  fry_output$GenesetCat <- gsc_category[rownames(fry_output)]
+  fry_output$GenesetSubCat <- gsc_subcategory[rownames(fry_output)]
+  return(fry_output)
+}
+
+fry_res_sig <- post_fry_format(fry_res_out, gsc_category, gsc_subcategory) %>%
+  as.data.frame() %>%
+  filter(FDR < 0.05) 
+
+fry_res_sig %>%
+  arrange(FDR) %>%
+  filter(Direction == "Up") %>%
+  .[seq(20),] %>%
+  mutate(GenesetName = factor(GenesetName, levels = .$GenesetName)) %>%
+  ggplot(aes(GenesetName, -log(FDR))) +
+  geom_bar(stat = "identity", fill = "red") +
+  theme_bw() +
+  coord_flip() +
+  ggtitle("Up-regulated")
+
+fry_res_sig %>%
+  arrange(FDR) %>%
+  filter(Direction == "Down") %>%
+  .[seq(20),] %>%
+  mutate(GenesetName = factor(GenesetName, levels = .$GenesetName)) %>%
+  ggplot(aes(GenesetName, -log(FDR))) +
+  geom_bar(stat = "identity", fill = "blue") +
+  theme_bw() +
+  coord_flip() +
+  ggtitle("Down-regulated")
+
+```
+
 
 #Spatial Deconvolution
 
 need to check negative probes are imported correctly
+
+this probably won't work, no dataset for mouse colon included in package.
+Datasets here, small intestine closest:
+https://github.com/Nanostring-Biostats/CellProfileLibrary/tree/NewProfileMatrices/Mouse/Adult
 
 ```{r}
 spd <- prepareSpatialDecon(seDataSet_tmm)
