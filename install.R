@@ -1,13 +1,15 @@
+#install.packages("installr")
+#library(installr)
+#updateR()
+
 install.packages("devtools")
 
 if (!requireNamespace("BiocManager", quietly=TRUE))
   install.packages("BiocManager")
 
-BiocManager::install("NanoStringNCTools")
+install.packages("librarian")
+library(librarian)
 
-if (!require("BiocManager", quietly = TRUE))
-  install.packages("BiocManager")
+librarian::shelf(RColorBrewer,knitr,dplyr,ggforce,stringr,ggplot2,scales,reshape2,cowplot,umap,Rtsne,plotly,tictoc,tidyverse,ggalluvial,scater)
 
-BiocManager::install("GeomxTools")
-BiocManager::install("GeoMxWorkflows")
-
+librarian::shelf(NanoStringNCTools,GeomxTools,GeoMxWorkflows,GeoDiff,Biobase,SpatialExperiment,standR,limma,edgeR,msigdb,GSEABase)

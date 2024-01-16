@@ -1,4 +1,4 @@
-data/
+data/*.dcc
 
 # History files
 .Rhistory

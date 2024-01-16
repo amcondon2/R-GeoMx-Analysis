@@ -209,7 +209,7 @@ highbcv_df <- bcv_df[highbcv, ]; points(highbcv_df$AveLogCPM, highbcv_df$BCV, co
 
 v <- voom(dge_all, design, plot = TRUE) 
 
-cor <- duplicateCorrelation(object=dge_all, design = design)
+cor <- duplicateCorrelation(object=v, design = design, block = "Group")
 
 fit <- lmFit(v)
 
