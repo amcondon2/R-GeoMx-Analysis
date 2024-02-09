@@ -1,0 +1,133 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# Import Libraries
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+
+library(SpatialExperiment)
+library(standR)
+
+library(dplyr)
+library(tidyverse)
+
+library(ggplot2)
+library(ggalluvial)
+
+library(scater)
+library(ggrepel)
+```
+
+#Load Data
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+
+#make spatial experiment object
+dataSet_target <- aggregateCounts(dataSet)
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
+assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+```
+
+#QC
+```{r}
+#Gene Level
+dim(seDataSet)
+
+seDataSet <- addPerROIQC(seDataSet, rm_genes=TRUE, sample_fraction = 0.9, min_count = 5)
+
+dim(seDataSet)
+metadata(seDataSet) |> names()
+
+
+plotGeneQC(seDataSet, ordannots = "Segment", col = Segment, point_size = 2, top_n = 9)
+
+#ROI Level
+#On RLE plots:
+#https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5798764/
+
+plotROIQC(seDataSet, x_axis="Nuclei", y_axis = "lib_size",  x_lab = "Nuclei", x_threshold = 50, color = Segment)
+
+plotROIQC(seDataSet, x_axis="Area", y_axis = "lib_size", x_lab = "Area", color = Segment)
+
+
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 2) #counts
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) #logcounts
+```
+
+#PCA on PanCK+
+```{r}
+set.seed(100)
+
+subset <- seDataSet[, seDataSet$Segment == "PanCK+"]
+
+subset <- scater::runPCA(subset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20) #run PCA on log counts
+
+pca_results <- reducedDim(subset, "PCA")
+
+plotScreePCA(subset, precomputed = pca_results)
+#drawPCA(subset, precomputed = pca_results, col = Group)
+
+plotPCA(subset, color_by="Group", shape_by="Sex", ncomponents=4)
+
+  #plotPCAbiplot(subset, n_loadings = 10, precomputed = pca_results, col = Group)
+
+#standR::plotMDS(subset, assay = 3, color = Group)
+
+
+#investigate gene relation to PCs
+pc_loadings <- as_tibble(attr(pca_results, "rotation"), rownames = "gene")
+
+#https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
+top_genes <- pc_loadings %>% 
+  # select only the PCs we are interested in
+  select(gene, PC3) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:20) %>% 
+  # pull the gene column as a vector
+  pull(gene) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+dput(top_genes)
+
+top_loadings <- pc_loadings %>% 
+  filter(gene %in% top_genes)
+
+ggplot(data = top_loadings) +
+  geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC3), 
+               arrow = arrow(length = unit(0.1, "in")),
+               color = "brown") +
+  geom_text_repel(aes(x = PC1, y = PC3, label = gene),
+            nudge_y = 0.005, size = 3) +
+  scale_x_continuous(expand = c(0.02, 0.02)) +
+  theme_bw()
+
+plotExplanatoryVariables(subset, variables=c("Group", "Sex", "Area", "sample", "lib_size"))
+
+```
