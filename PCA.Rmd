@@ -74,8 +74,8 @@ plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 2) #counts
 plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) #logcounts
 ```
 
-#PCA on PanCK+
-```{r}
+#PCA on PanCK+ Raw Data
+```{r, fig.width = 10, dpi = 900}
 set.seed(100)
 
 subset <- seDataSet[, seDataSet$Segment == "PanCK+"]
@@ -87,7 +87,7 @@ pca_results <- reducedDim(subset, "PCA")
 plotScreePCA(subset, precomputed = pca_results)
 #drawPCA(subset, precomputed = pca_results, col = Group)
 
-plotPCA(subset, color_by="Group", shape_by="Sex", ncomponents=4)
+plotPCA(subset, color_by="Group", shape_by="Sex", ncomponents=5)
 
   #plotPCAbiplot(subset, n_loadings = 10, precomputed = pca_results, col = Group)
 
@@ -119,15 +119,92 @@ dput(top_genes)
 top_loadings <- pc_loadings %>% 
   filter(gene %in% top_genes)
 
-ggplot(data = top_loadings) +
-  geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC3), 
+pca_readable <- as_tibble(pca_results, rownames = "Sample")
+pca_readable <- cbind(pca_readable, as_tibble(colData(tmmSubset)))
+
+loadScale <- 50
+ggplot() +
+  geom_segment(data = top_loadings, aes(x = 0, y = 0, xend = PC1*loadScale, yend = PC3*loadScale), 
                arrow = arrow(length = unit(0.1, "in")),
                color = "brown") +
-  geom_text_repel(aes(x = PC1, y = PC3, label = gene),
+  geom_text_repel(data = top_loadings, aes(x = PC1*loadScale, y = PC3*loadScale, label = gene),
             nudge_y = 0.005, size = 3) +
+  geom_point(data = pca_readable, aes(x = PC1, y = PC3, color=Group, shape=Sex, size=lib_size)) +
   scale_x_continuous(expand = c(0.02, 0.02)) +
-  theme_bw()
+  theme_bw() +
+  #coord_fixed(ratio = 3/64) +
+  xlab("PC1 (64%)") + ylab("PC3 (6%)")
 
-plotExplanatoryVariables(subset, variables=c("Group", "Sex", "Area", "sample", "lib_size"))
+plotExplanatoryVariables(subset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
+plotExplanatoryPCs(subset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
+getExplanatoryPCs(subset)
 
 ```
+# PCA on TMM Normalized Data
+```{r, fig.width = 10, dpi = 900}
+seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
+
+plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) #logcounts
+
+set.seed(100)
+tmmSubset <- scater::runPCA(tmmSubset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20) #run PCA on log counts
+
+pca_results_tmm <- reducedDim(tmmSubset, "PCA")
+
+plotScreePCA(tmmSubset, precomputed = pca_results_tmm)
+#drawPCA(tmmSubset, precomputed = pca_results, col = Group)
+
+plotPCA(tmmSubset, color_by="Group", shape_by="Sex", ncomponents=5)
+
+  #plotPCAbiplot(tmmSubset, n_loadings = 10, precomputed = pca_results, col = Group)
+
+#standR::plotMDS(tmmSubset, assay = 3, color = Group)
+
+
+#investigate gene relation to PCs
+pc_loadings_tmm <- as_tibble(attr(pca_results_tmm, "rotation"), rownames = "gene")
+
+#https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
+top_genes_tmm <- pc_loadings_tmm %>% 
+  # select only the PCs we are interested in
+  select(gene, PC1, PC4) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:20) %>% 
+  # pull the gene column as a vector
+  pull(gene) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+dput(top_genes_tmm)
+
+top_loadings_tmm <- pc_loadings_tmm %>% 
+  filter(gene %in% top_genes_tmm)
+
+pca_readable_tmm <- as_tibble(pca_results_tmm, rownames = "Sample")
+pca_readable_tmm <- cbind(pca_readable_tmm, as_tibble(colData(tmmSubset)))
+
+loadScale <- 50
+ggplot() +
+  geom_segment(data = top_loadings_tmm, aes(x = 0, y = 0, xend = PC1*loadScale, yend = PC4*loadScale), 
+               arrow = arrow(length = unit(0.1, "in")),
+               color = "brown") +
+  geom_text_repel(data = top_loadings_tmm, aes(x = PC1*loadScale, y = PC4*loadScale, label = gene),
+            nudge_y = 0.005, size = 3) +
+  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=Group, shape=Sex, size=log(lib_size))) +
+  scale_x_continuous(expand = c(0.02, 0.02)) +
+  theme_bw() +
+  #coord_fixed(ratio = 6/27) +
+  xlab("PC1 (27%)") + ylab("PC4 (6%)")
+
+plotExplanatoryVariables(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
+plotExplanatoryPCs(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
+getExplanatoryPCs(tmmSubset)
+```
+
