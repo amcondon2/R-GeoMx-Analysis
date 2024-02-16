@@ -1756,21 +1756,103 @@ display: none;
 <h1>Import Libraries</h1>
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShOYW5vU3RyaW5nTkNUb29scylcbmxpYnJhcnkoR2VvbXhUb29scylcblxubGlicmFyeShTcGF0aWFsRXhwZXJpbWVudClcbmxpYnJhcnkoc3RhbmRSKVxuXG5saWJyYXJ5KGRwbHlyKVxubGlicmFyeSh0aWR5dmVyc2UpXG5cbmxpYnJhcnkoZ2dwbG90MilcbmxpYnJhcnkoZ2dhbGx1dmlhbClcblxubGlicmFyeShzY2F0ZXIpXG5saWJyYXJ5KGdncmVwZWwpXG5gYGAifQ== -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShOYW5vU3RyaW5nTkNUb29scylcbmxpYnJhcnkoR2VvbXhUb29scylcblxubGlicmFyeShTcGF0aWFsRXhwZXJpbWVudClcbmxpYnJhcnkoc3RhbmRSKVxuXG5saWJyYXJ5KGRwbHlyKVxuYGBgIn0= -->
 <pre class="r"><code>library(NanoStringNCTools)
 library(GeomxTools)
 
 library(SpatialExperiment)
 library(standR)
 
-library(dplyr)
-library(tidyverse)
+library(dplyr)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG5BdHRhY2hpbmcgcGFja2FnZTog4oCYZHBseXLigJlcblxuVGhlIGZvbGxvd2luZyBvYmplY3RzIGFyZSBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOkdlbm9taWNSYW5nZXPigJk6XG5cbiAgICBpbnRlcnNlY3QsIHNldGRpZmYsIHVuaW9uXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0IGlzIG1hc2tlZCBmcm9tIOKAmHBhY2thZ2U6R2Vub21lSW5mb0Ri4oCZOlxuXG4gICAgaW50ZXJzZWN0XG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpJUmFuZ2Vz4oCZOlxuXG4gICAgY29sbGFwc2UsIGRlc2MsIGludGVyc2VjdCwgc2V0ZGlmZiwgc2xpY2UsIHVuaW9uXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0IGlzIG1hc2tlZCBmcm9tIOKAmHBhY2thZ2U6bWF0cml4U3RhdHPigJk6XG5cbiAgICBjb3VudFxuXG5UaGUgZm9sbG93aW5nIG9iamVjdCBpcyBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOk5hbm9TdHJpbmdOQ1Rvb2xz4oCZOlxuXG4gICAgZ3JvdXBzXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpTNFZlY3RvcnPigJk6XG5cbiAgICBmaXJzdCwgaW50ZXJzZWN0LCByZW5hbWUsIHNldGRpZmYsIHNldGVxdWFsLCB1bmlvblxuXG5UaGUgZm9sbG93aW5nIG9iamVjdCBpcyBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOkJpb2Jhc2XigJk6XG5cbiAgICBjb21iaW5lXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpCaW9jR2VuZXJpY3PigJk6XG5cbiAgICBjb21iaW5lLCBpbnRlcnNlY3QsIHNldGRpZmYsIHVuaW9uXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpzdGF0c+KAmTpcblxuICAgIGZpbHRlciwgbGFnXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpiYXNl4oCZOlxuXG4gICAgaW50ZXJzZWN0LCBzZXRkaWZmLCBzZXRlcXVhbCwgdW5pb25cbiJ9 -->
+<pre><code>
+Attaching package: ‘dplyr’
 
-library(ggplot2)
+The following objects are masked from ‘package:GenomicRanges’:
+
+    intersect, setdiff, union
+
+The following object is masked from ‘package:GenomeInfoDb’:
+
+    intersect
+
+The following objects are masked from ‘package:IRanges’:
+
+    collapse, desc, intersect, setdiff, slice, union
+
+The following object is masked from ‘package:matrixStats’:
+
+    count
+
+The following object is masked from ‘package:NanoStringNCTools’:
+
+    groups
+
+The following objects are masked from ‘package:S4Vectors’:
+
+    first, intersect, rename, setdiff, setequal, union
+
+The following object is masked from ‘package:Biobase’:
+
+    combine
+
+The following objects are masked from ‘package:BiocGenerics’:
+
+    combine, intersect, setdiff, union
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeSh0aWR5dmVyc2UpXG5gYGAifQ== -->
+<pre class="r"><code>library(tidyverse)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoi4pSA4pSAIEF0dGFjaGluZyBjb3JlIHRpZHl2ZXJzZSBwYWNrYWdlcyDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgdGlkeXZlcnNlIDIuMC4wIOKUgOKUgFxu4pyUIGZvcmNhdHMgICAxLjAuMCAgICAg4pyUIHN0cmluZ3IgICAxLjUuMVxu4pyUIGx1YnJpZGF0ZSAxLjkuMyAgICAg4pyUIHRpYmJsZSAgICAzLjIuMVxu4pyUIHB1cnJyICAgICAxLjAuMiAgICAg4pyUIHRpZHlyICAgICAxLjMuMFxu4pyUIHJlYWRyICAgICAyLjEuNSAgICAg4pSA4pSAIENvbmZsaWN0cyDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAgdGlkeXZlcnNlX2NvbmZsaWN0cygpIOKUgOKUgFxu4pyWIGx1YnJpZGF0ZTo6JXdpdGhpbiUoKSBtYXNrcyBJUmFuZ2VzOjold2l0aGluJSgpXG7inJYgZHBseXI6OmNvbGxhcHNlKCkgICAgIG1hc2tzIElSYW5nZXM6OmNvbGxhcHNlKClcbuKcliBkcGx5cjo6Y29tYmluZSgpICAgICAgbWFza3MgQmlvYmFzZTo6Y29tYmluZSgpLCBCaW9jR2VuZXJpY3M6OmNvbWJpbmUoKVxu4pyWIGRwbHlyOjpjb3VudCgpICAgICAgICBtYXNrcyBtYXRyaXhTdGF0czo6Y291bnQoKVxu4pyWIGRwbHlyOjpkZXNjKCkgICAgICAgICBtYXNrcyBJUmFuZ2VzOjpkZXNjKClcbuKcliB0aWR5cjo6ZXhwYW5kKCkgICAgICAgbWFza3MgUzRWZWN0b3JzOjpleHBhbmQoKVxu4pyWIGRwbHlyOjpmaWx0ZXIoKSAgICAgICBtYXNrcyBzdGF0czo6ZmlsdGVyKClcbuKcliBkcGx5cjo6Zmlyc3QoKSAgICAgICAgbWFza3MgUzRWZWN0b3JzOjpmaXJzdCgpXG7inJYgZHBseXI6Omdyb3VwcygpICAgICAgIG1hc2tzIE5hbm9TdHJpbmdOQ1Rvb2xzOjpncm91cHMoKVxu4pyWIGRwbHlyOjpsYWcoKSAgICAgICAgICBtYXNrcyBzdGF0czo6bGFnKClcbuKcliBnZ3Bsb3QyOjpQb3NpdGlvbigpICAgbWFza3MgQmlvY0dlbmVyaWNzOjpQb3NpdGlvbigpLCBiYXNlOjpQb3NpdGlvbigpXG7inJYgcHVycnI6OnJlZHVjZSgpICAgICAgIG1hc2tzIEdlbm9taWNSYW5nZXM6OnJlZHVjZSgpLCBJUmFuZ2VzOjpyZWR1Y2UoKVxu4pyWIGRwbHlyOjpyZW5hbWUoKSAgICAgICBtYXNrcyBTNFZlY3RvcnM6OnJlbmFtZSgpXG7inJYgbHVicmlkYXRlOjpzZWNvbmQoKSAgIG1hc2tzIFM0VmVjdG9yczo6c2Vjb25kKClcbuKcliBsdWJyaWRhdGU6OnNlY29uZDwtKCkgbWFza3MgUzRWZWN0b3JzOjpzZWNvbmQ8LSgpXG7inJYgZHBseXI6OnNsaWNlKCkgICAgICAgIG1hc2tzIElSYW5nZXM6OnNsaWNlKClcbuKEuSBVc2UgdGhlIFx1MDAxYl04OztodHRwOi8vY29uZmxpY3RlZC5yLWxpYi5vcmcvXHUwMDA3Y29uZmxpY3RlZCBwYWNrYWdlXHUwMDFiXTg7O1x1MDAwNyB0byBmb3JjZSBhbGwgY29uZmxpY3RzIHRvIGJlY29tZSBlcnJvcnNcbiJ9 -->
+<pre><code>── Attaching core tidyverse packages ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse 2.0.0 ──
+✔ forcats   1.0.0     ✔ stringr   1.5.1
+✔ lubridate 1.9.3     ✔ tibble    3.2.1
+✔ purrr     1.0.2     ✔ tidyr     1.3.0
+✔ readr     2.1.5     ── Conflicts ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse_conflicts() ──
+✖ lubridate::%within%() masks IRanges::%within%()
+✖ dplyr::collapse()     masks IRanges::collapse()
+✖ dplyr::combine()      masks Biobase::combine(), BiocGenerics::combine()
+✖ dplyr::count()        masks matrixStats::count()
+✖ dplyr::desc()         masks IRanges::desc()
+✖ tidyr::expand()       masks S4Vectors::expand()
+✖ dplyr::filter()       masks stats::filter()
+✖ dplyr::first()        masks S4Vectors::first()
+✖ dplyr::groups()       masks NanoStringNCTools::groups()
+✖ dplyr::lag()          masks stats::lag()
+✖ ggplot2::Position()   masks BiocGenerics::Position(), base::Position()
+✖ purrr::reduce()       masks GenomicRanges::reduce(), IRanges::reduce()
+✖ dplyr::rename()       masks S4Vectors::rename()
+✖ lubridate::second()   masks S4Vectors::second()
+✖ lubridate::second&lt;-() masks S4Vectors::second&lt;-()
+✖ dplyr::slice()        masks IRanges::slice()
+ℹ Use the ]8;;http://conflicted.r-lib.org/conflicted package]8;; to force all conflicts to become errors</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShnZ3Bsb3QyKVxubGlicmFyeShnZ2FsbHV2aWFsKVxuXG5saWJyYXJ5KHNjYXRlcilcbmBgYCJ9 -->
+<pre class="r"><code>library(ggplot2)
 library(ggalluvial)
 
-library(scater)
-library(ggrepel)</code></pre>
+library(scater)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiTG9hZGluZyByZXF1aXJlZCBwYWNrYWdlOiBzY3V0dGxlXG5cbkF0dGFjaGluZyBwYWNrYWdlOiDigJhzY2F0ZXLigJlcblxuVGhlIGZvbGxvd2luZyBvYmplY3QgaXMgbWFza2VkIGZyb20g4oCYcGFja2FnZTpzdGFuZFLigJk6XG5cbiAgICBwbG90TURTXG4ifQ== -->
+<pre><code>Loading required package: scuttle
+
+Attaching package: ‘scater’
+
+The following object is masked from ‘package:standR’:
+
+    plotMDS</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShnZ3JlcGVsKVxuYGBgIn0= -->
+<pre class="r"><code>library(ggrepel)</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
