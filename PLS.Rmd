@@ -89,13 +89,16 @@ tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
 plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) #logcounts
 ```
 
-#Import ROI summary data
+#Import ROI summary data and prep for PLS
 ```{r}
 flimParams <- read_csv("C:/Users/Alex/Desktop/Marcu Lab/mouse r data/roiSummaryTable.csv")
 
+countsMatrix <- t(assay(tmmSubset, 'logcounts'))
+colMatrx <- as.data.frame(colData(tmmSubset))
 
+joined <- left_join(colMatrx, flimParams, by = "sample")
+
+plsrModel <- plsr(cbind(joined$LT1mean, joined$LT2mean, joined$LT3mean, joined$IR13mean, joined$IR23mean) ~ countsMatrix, scale = TRUE)
+
+coefs <- coef(plsrModel)
 ```
-
-
-
-
