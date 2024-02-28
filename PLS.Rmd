@@ -29,7 +29,8 @@ library(ggplot2)
 library(ggalluvial)
 library(ggrepel)
 
-library(pls)
+#library(pls)
+library(mixOmics)
 ```
 
 #Load Data
@@ -89,16 +90,44 @@ tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
 plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) #logcounts
 ```
 
-#Import ROI summary data and prep for PLS
+#Import ROI summary data and do PLS
 ```{r}
-flimParams <- read_csv("C:/Users/Alex/Desktop/Marcu Lab/mouse r data/roiSummaryTable.csv")
+flimParams <- read_csv("matlab scripts/roiSummaryTable.csv")
 
 countsMatrix <- t(assay(tmmSubset, 'logcounts'))
 colMatrx <- as.data.frame(colData(tmmSubset))
 
 joined <- left_join(colMatrx, flimParams, by = "sample")
 
-plsrModel <- plsr(cbind(joined$LT1mean, joined$LT2mean, joined$LT3mean, joined$IR13mean, joined$IR23mean) ~ countsMatrix, scale = TRUE)
+#for pls package:
+plsrModelLTint <- plsr(cbind(joined$LT1mean, joined$LT2mean, joined$LT3mean, joined$IR13mean, joined$IR23mean) ~ countsMatrix, scale = TRUE)
+plsrModelLT <- plsr(cbind(joined$LT2mean) ~ countsMatrix, scale = TRUE)
 
-coefs <- coef(plsrModel)
+#for mixOmics:
+  #http://mixomics.org/methods/spls/
+flimParamsRaw <- subset(joined, select = c(LT1mean, LT2mean, LT3mean, IR13mean, IR23mean))
+splsResult <- spls(countsMatrix, flimParamsRaw, mode = "canonical", scale = TRUE, ncomp = 5)
 ```
+our problem is one of 'feature selection'
+  -we should prefer a 'canonical' approach because we expect a reciprocal relationship between sets (transcripts -> fluorophores <- LT measurment) ?? https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-10-34
+
+https://doi.org/10.1093/bib/bbl016
+  -ordering of weights only has clear statistical meaining for first component, single regression (not our case)
+
+to look into:
+https://github.com/gdurif/plsgenomics
+http://mixomics.org/methods/spls/
+
+review of selection methods:
+https://doi.org/10.1016/j.chemolab.2012.07.010
+#Investigate
+```{r}
+#summary(plsrModelLT)
+#summary(plsrModelLTint)
+
+splsResult$prop_expl_var
+
+variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
+head(variableImportance)
+```
+
