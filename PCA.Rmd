@@ -1,13 +1,20 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output: 
+  html_document:
+    keep_md: true
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev = "png",dpi=900,fig.width=10, cache = TRUE)
+```
 
 
 # Import Libraries
 ```{r}
 library(NanoStringNCTools)
 library(GeomxTools)
+library(BiocSingular)
 
 library(SpatialExperiment)
 library(standR)
@@ -20,6 +27,7 @@ library(ggalluvial)
 
 library(scater)
 library(ggrepel)
+library(ggpubr)
 ```
 
 #Load Data
@@ -80,7 +88,7 @@ set.seed(100)
 
 subset <- seDataSet[, seDataSet$Segment == "PanCK+"]
 
-subset <- scater::runPCA(subset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20) #run PCA on log counts
+subset <- scater::runPCA(subset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20, BSPARAM=ExactParam(deferred=FALSE, fold=Inf)) #run PCA on log counts
 
 pca_results <- reducedDim(subset, "PCA")
 
@@ -120,7 +128,7 @@ top_loadings <- pc_loadings %>%
   filter(gene %in% top_genes)
 
 pca_readable <- as_tibble(pca_results, rownames = "Sample")
-pca_readable <- cbind(pca_readable, as_tibble(colData(tmmSubset)))
+pca_readable <- cbind(pca_readable, as_tibble(colData(subset)))
 
 loadScale <- 50
 ggplot() +
@@ -148,7 +156,7 @@ tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
 plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) #logcounts
 
 set.seed(100)
-tmmSubset <- scater::runPCA(tmmSubset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20) #run PCA on log counts
+tmmSubset <- scater::runPCA(tmmSubset, scale = TRUE, exprs_values = "logcounts", ncomponents = 20, BSPARAM=ExactParam(deferred=FALSE, fold=Inf)) #run PCA on log counts
 
 pca_results_tmm <- reducedDim(tmmSubset, "PCA")
 
@@ -199,12 +207,35 @@ ggplot() +
             nudge_y = 0.005, size = 3) +
   geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=Group, shape=Sex, size=log(lib_size))) +
   scale_x_continuous(expand = c(0.02, 0.02)) +
-  theme_bw() +
+  theme_bw() + 
   #coord_fixed(ratio = 6/27) +
   xlab("PC1 (27%)") + ylab("PC4 (6%)")
 
 plotExplanatoryVariables(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
 plotExplanatoryPCs(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
-getExplanatoryPCs(tmmSubset)
-```
+tmmExplanPCs <- as_tibble(getExplanatoryPCs(tmmSubset, n_dimred = 20, variables = c("Area", "Group", "lib_size", "Nuclei", "percentOfLowEprGene", "sample", "Sex")))
+tmmExplanPCs <- tmmExplanPCs %>% add_column(PC = as.numeric(row.names(tmmExplanPCs)))
+tmmExplanPCs <- Filter(function(x)!all(is.na(x)), tmmExplanPCs)
+colSums(tmmExplanPCs)
 
+explainPlot <- tmmExplanPCs %>% pivot_longer(cols = !PC, names_to = "variable", values_to = "percent")
+
+p1 <- ggplot(data = explainPlot, aes(x = factor(PC), y = percent, fill = variable)) +
+  geom_col(color  = "black", position = "fill") + 
+  scale_y_continuous() +
+  scale_x_discrete() +
+  theme_bw() +
+  ylab("Proportion of Variance Contained") +
+  xlab("Principal Component") +
+  theme(legend.position = "none")
+
+p2 <- ggplot(data = explainPlot, aes(x = factor(PC), y = percent, fill = variable)) +
+  geom_col(color  = "black") + 
+  scale_y_continuous() +
+  scale_x_discrete() +
+  theme_bw() +
+  ylab("Per-Variable Percent Variation") +
+  xlab("Principal Component")
+
+ggarrange(p1, p2, common.legend = TRUE)
+```
