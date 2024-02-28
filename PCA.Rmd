@@ -205,7 +205,7 @@ ggplot() +
                color = "brown") +
   geom_text_repel(data = top_loadings_tmm, aes(x = PC1*loadScale, y = PC4*loadScale, label = gene),
             nudge_y = 0.005, size = 3) +
-  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=Group, shape=Sex, size=log(lib_size))) +
+  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=factor(sample), shape=Sex, size=log(lib_size))) +
   scale_x_continuous(expand = c(0.02, 0.02)) +
   theme_bw() + 
   #coord_fixed(ratio = 6/27) +
