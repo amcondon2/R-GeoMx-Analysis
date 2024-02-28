@@ -1,0 +1,101 @@
+---
+title: "Partial Least Squares"
+output:
+  html_document:
+    keep_md: true    
+---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 900,
+                      echo = FALSE,
+                      cache = TRUE)
+```
+
+
+# Import Libraries
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+
+library(SpatialExperiment)
+library(standR)
+library(pls)
+
+library(dplyr)
+library(tidyverse)
+
+library(ggplot2)
+library(ggalluvial)
+library(ggrepel)
+
+library(pls)
+```
+
+#Load Data
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+
+#make spatial experiment object
+dataSet_target <- aggregateCounts(dataSet)
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
+assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+```
+
+#QC and Normalization
+```{r}
+#Gene Level
+dim(seDataSet)
+
+seDataSet <- addPerROIQC(seDataSet, rm_genes=TRUE, sample_fraction = 0.9, min_count = 5)
+
+dim(seDataSet)
+metadata(seDataSet) |> names()
+
+
+plotGeneQC(seDataSet, ordannots = "Segment", col = Segment, point_size = 2, top_n = 9)
+
+#ROI Level
+#On RLE plots:
+#https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5798764/
+
+plotROIQC(seDataSet, x_axis="Nuclei", y_axis = "lib_size",  x_lab = "Nuclei", x_threshold = 50, color = Segment)
+
+plotROIQC(seDataSet, x_axis="Area", y_axis = "lib_size", x_lab = "Area", color = Segment)
+
+
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 2) #counts
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) #logcounts
+
+seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
+
+plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) #logcounts
+```
+
+#Import ROI summary data
+```{r}
+flimParams <- read_csv("C:/Users/Alex/Desktop/Marcu Lab/mouse r data/roiSummaryTable.csv")
+
+
+```
+
+
+
+

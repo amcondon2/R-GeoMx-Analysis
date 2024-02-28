@@ -1,7 +1,16 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    keep_md: true    
 ---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 900,
+                      echo = FALSE,
+                      cache = TRUE)
+```
 
 
 # Import Libraries
@@ -120,7 +129,7 @@ top_loadings <- pc_loadings %>%
   filter(gene %in% top_genes)
 
 pca_readable <- as_tibble(pca_results, rownames = "Sample")
-pca_readable <- cbind(pca_readable, as_tibble(colData(tmmSubset)))
+pca_readable <- cbind(pca_readable, as_tibble(colData(subset)))
 
 loadScale <- 50
 ggplot() +
@@ -197,11 +206,12 @@ ggplot() +
                color = "brown") +
   geom_text_repel(data = top_loadings_tmm, aes(x = PC1*loadScale, y = PC4*loadScale, label = gene),
             nudge_y = 0.005, size = 3) +
-  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=Group, shape=Sex, size=log(lib_size))) +
+  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=factor(sample), shape=Group)) +
   scale_x_continuous(expand = c(0.02, 0.02)) +
   theme_bw() +
   #coord_fixed(ratio = 6/27) +
   xlab("PC1 (27%)") + ylab("PC4 (6%)")
+
 
 plotExplanatoryVariables(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
 plotExplanatoryPCs(tmmSubset, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
