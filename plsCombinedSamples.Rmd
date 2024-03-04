@@ -1,0 +1,167 @@
+---
+title: "(s)PLS(-DA) on combined regions"
+output:
+  html_document:
+    keep_md: true   
+---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 900,
+                      echo = FALSE,
+                      cache = TRUE)
+```
+
+# Import Libraries
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(scuttle)
+
+library(SpatialExperiment)
+library(standR)
+library(pls)
+
+library(dplyr)
+library(tidyverse)
+
+library(ggplot2)
+library(ggalluvial)
+library(ggrepel)
+
+#library(pls)
+library(mixOmics)
+```
+
+#Load Data
+```{r}
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+
+flimParams <- read_csv("matlab scripts/roiSummaryTable.csv")
+```
+
+## Normalize data
+```{r}
+#make spatial experiment object
+dataSet_target <- aggregateCounts(dataSet)
+dataSet_targetQnorm <- normalize(dataSet_target, norm_method = "quant")
+seDataSetQnorm <- as.SpatialExperiment(dataSet_targetQnorm, normData = "exprs_norm")
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+
+assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
+assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+assay(seDataSetQnorm, "counts") <- assay(seDataSetQnorm, "GeoMx")
+assay(seDataSetQnorm, "logcounts") <- log2(assay(seDataSetQnorm, "GeoMx"))
+
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("Raw Counts") #logcounts
+plotRLExpr(seDataSetQnorm, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("Quantile Normalized (nanostring method)") #logcounts
+seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("TMM Normalized")#logcounts
+#tmm does better than nanostring method by RLE metric
+
+tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
+
+#create object with counts summed across same segment types within samples
+summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample,colData(seDataSet)$Segment)), statistics = "sum")
+assay(summedRaw, "logcounts") <- log2(assay(summedRaw) + 1)
+summedRaw_tmm <- geomxNorm(summedRaw, method = "TMM")
+
+plotRLExpr(summedRaw, color = factor(sample), assay = "logcounts") + ggtitle("Raw")
+plotRLExpr(summedRaw_tmm, color = factor(sample), assay = "logcounts") + ggtitle("TMM Normalized")
+
+summedRaw_tmmPCKP <- summedRaw_tmm[, summedRaw_tmm$Segment == "PanCK+"]
+```
+
+#Do sPLS with FLIm features on summed data
+```{r}
+summedCountsMatrixPCKP <- t(assay(summedRaw_tmmPCKP, 'logcounts'))
+
+colMatrxPCKP <- as.data.frame(colData(summedRaw_tmmPCKP))
+joined <- left_join(colMatrxPCKP, flimParams, by = "sample")
+
+seletedFlimParams <- subset(joined, select = c(LT2mean, LT3mean))
+splsResult <- spls(summedCountsMatrixPCKP, seletedFlimParams, mode = "regression", scale = TRUE, ncomp = 2, keepX = 50, keepY = 2)
+```
+
+#Analysis on sPLS result
+```{r}
+splsResult$prop_expl_var
+
+variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
+head(variableImportance, n = 50)
+#write.csv(variableImportance, "sPLS_FLIm_VIP.csv")
+
+#plotIndiv(splsResult, group=joined$Group, legend = TRUE)
+#plotLoadings(splsResult, method = 'mean', contrib = 'max')
+```
+
+#Do sPLS-DA on treatment group with summed data
+```{r}
+splsdaResult <- splsda(summedCountsMatrixPCKP, as.factor(joined$Group), keepX = 50, scale = TRUE, ncomp=2)
+
+splsdaResult$prop_expl_var
+#plotIndiv(splsdaResult)
+#plotVar(splsdaResult)
+selectVar(splsdaResult, comp = 1)$name
+
+plotLoadings(splsdaResult, method = 'mean', contrib = 'max')  
+
+variableImportanceGroup <- as.data.frame(vip(splsdaResult)) %>% arrange(desc(comp1))
+head(variableImportanceGroup, n = 50)
+#write.csv(variableImportanceGroup, "sPLS_Group_VIP.csv")
+```
+
+#Do sPLS-DA on sex group with summed data
+```{r}
+splsdaResultSex <- splsda(summedCountsMatrixPCKP, as.factor(joined$Sex.x), keepX = 50, scale = TRUE)
+
+splsdaResultSex$prop_expl_var
+plotIndiv(splsdaResultSex)
+#plotVar(splsdaResultSex)
+selectVar(splsdaResultSex, comp = 1)$name
+
+plotLoadings(splsdaResultSex, method = 'mean', contrib = 'max')  
+
+variableImportanceGroup <- as.data.frame(vip(splsdaResultSex)) %>% arrange(desc(comp1))
+head(variableImportanceGroup, n = 50)
+```
+
+```{r}
+plotGeneWrtFlimFeature <- function(seObject, flimParamsTable, geneName, colName, yLabel) {
+  geneCounts <- (assay(seObject, 'logcounts')[geneName,])
+  colMatrix <- as.data.frame(colData(summedRaw_tmmPCKP))
+  joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
+  flimFeature <- joined[colName]
+  
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+  
+  flimCol <- ensym(colName)
+  ggplot(toPlot, aes(x=geneCounts, y=!!ensym(colName), color=Group, shape=Sex.x)) + geom_point() + theme_bw() +
+    xlab("Log Counts") + 
+    ylab(yLabel) + 
+    ggtitle(geneName) +
+    labs(shape = "Sex")
+}
+
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Endog", "LT2mean", "Channel 2 Lifetime (ns)")
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Clip1", "LT2mean", "Channel 2 Lifetime (ns)")
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Tnnc2", "LT2mean", "Channel 2 Lifetime (ns)")
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Odf3b", "LT2mean", "Channel 2 Lifetime (ns)")
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Rnf141", "LT2mean", "Channel 2 Lifetime (ns)")
+```
+
