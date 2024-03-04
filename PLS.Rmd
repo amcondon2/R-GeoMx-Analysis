@@ -105,14 +105,19 @@ plsrModelLT <- plsr(cbind(joined$LT2mean) ~ countsMatrix, scale = TRUE)
 
 #for mixOmics:
   #http://mixomics.org/methods/spls/
-flimParamsRaw <- subset(joined, select = c(LT1mean, LT2mean, LT3mean, IR13mean, IR23mean))
-splsResult <- spls(countsMatrix, flimParamsRaw, mode = "canonical", scale = TRUE, ncomp = 5)
+flimParamsRaw <- subset(joined, select = c(LT2mean, LT3mean))
+splsResult <- spls(countsMatrix, flimParamsRaw, mode = "regression", scale = TRUE, ncomp = 3, keepX = 50)
 ```
 our problem is one of 'feature selection'
-  -we should prefer a 'canonical' approach because we expect a reciprocal relationship between sets (transcripts -> fluorophores <- LT measurment) ?? https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-10-34
+  -we should prefer a 'regression' approach because we expect a causual relationship between sets (transcripts -> fluorophores -> LT measurment) ??
+-this only matters for (s)PLS after first component becauce the difference is in how the matricies are deflated  
+https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-10-34
 
 https://doi.org/10.1093/bib/bbl016
   -ordering of weights only has clear statistical meaining for first component, single regression (not our case)
+
+sPCS  
+https://doi.org/10.2202/1544-6115.1390
 
 to look into:
 https://github.com/gdurif/plsgenomics
@@ -128,6 +133,6 @@ https://doi.org/10.1016/j.chemolab.2012.07.010
 splsResult$prop_expl_var
 
 variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
-head(variableImportance)
+head(variableImportance, n = 50)
 ```
 
