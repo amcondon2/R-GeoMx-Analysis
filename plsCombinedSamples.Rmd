@@ -138,7 +138,7 @@ selectVar(splsdaResultSex, comp = 1)$name
 plotLoadings(splsdaResultSex, method = 'mean', contrib = 'max')  
 
 variableImportanceGroup <- as.data.frame(vip(splsdaResultSex)) %>% arrange(desc(comp1))
-head(variableImportanceGroup, n = 50)
+head(variableImportanceGroup, n = 500)
 ```
 
 ```{r}
@@ -162,6 +162,47 @@ plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Endog", "LT2mean", "Chann
 plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Clip1", "LT2mean", "Channel 2 Lifetime (ns)")
 plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Tnnc2", "LT2mean", "Channel 2 Lifetime (ns)")
 plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Odf3b", "LT2mean", "Channel 2 Lifetime (ns)")
-plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Rnf141", "LT2mean", "Channel 2 Lifetime (ns)")
+plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Nscme3l", "LT2mean", "Channel 2 Lifetime (ns)")
+```
+```{r}
+getCorrSquared <- function(seObject, flimParamsTable, geneName, colName, method) {
+  geneCounts <- (assay(seObject, 'logcounts')[geneName,])
+  colMatrix <- as.data.frame(colData(summedRaw_tmmPCKP))
+  joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
+  flimFeature <- joined[colName]
+  
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+
+  #browser()
+  return(summary(lm(as.formula(paste(colName, "~ geneCounts")), toPlot))$adj.r.squared)
+  
+  #return(cor(toPlot$geneCounts, toPlot$LT2mean, method = method)^2)
+}
+
+getResidualError <- function(seObject, flimParamsTable, geneName, colName, method) {
+  geneCounts <- (assay(seObject, 'logcounts')[geneName,])
+  colMatrix <- as.data.frame(colData(summedRaw_tmmPCKP))
+  joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
+  flimFeature <- joined[colName]
+  
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+
+  #browser()
+  return(sigma(lm(as.formula(paste(colName, "~ geneCounts")), toPlot)))
+}
+
+variableImportanceLT <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
+head(variableImportanceLT, n = 50)
+
+numToPlot = 100;
+corPlotMatrix <- data.frame(seq(1:numToPlot+1))
+colnames(corPlotMatrix) <- "rank"
+corPlotMatrix$name <- lapply(corPlotMatrix$rank, function(curRank) rownames(variableImportanceLT)[curRank])
+corPlotMatrix$cor <- as.numeric(lapply(corPlotMatrix$rank, function(curRank) getCorrSquared(summedRaw_tmmPCKP, flimParams, rownames(variableImportanceLT)[curRank], "LT2mean", "pearson")))
+corPlotMatrix$sigma <- as.numeric(lapply(corPlotMatrix$rank, function(curRank) getResidualError(summedRaw_tmmPCKP, flimParams, rownames(variableImportanceLT)[curRank], "LT2mean", "pearson")))
+
+ggplot(corPlotMatrix, aes(x=rank, y=cor)) + geom_point() + theme_bw() + xlab("Gene VIP Rank") + ylab(bquote("Adjusted R"^2)) + ggtitle("Correlation Between Channel 2 Lifetime and Log Gene Count \n vs. Variable Importance in Projection Ranking") + theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(corPlotMatrix, aes(x=rank, y=sigma)) + geom_point() + theme_bw() + xlab("Gene VIP Rank") + ylab("Residual Standard Deviation") + ggtitle("Residual Standard Error of Fit Between Channel 2 Lifetime and Log Gene Count \n vs. Variable Importance in Projection Ranking") + theme(plot.title = element_text(hjust = 0.5))
 ```
 
