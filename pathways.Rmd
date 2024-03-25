@@ -1,0 +1,149 @@
+---
+title: "Gene-Set / Pathway Analysis"
+output:
+  html_document:
+    keep_md: true 
+---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 900,
+                      echo = FALSE,
+                      cache = TRUE)
+```
+
+Interesting libraries:
+
+<https://bioconductor.org/packages/release/bioc/html/GSVA.html> Going to try first, implements GSEA, ssGSEA, and other methods <https://bioconductor.org/packages/release/bioc/html/singscore.html> newer single sample method by group creating standR
+
+<https://bioconductor.org/packages/release/bioc/html/limma.html> for pathway analysis with voom + camera/fry/roast. Going to try last <https://bioconductor.org/packages/release/bioc/html/SPIA.html> not as popular method, but higher pathway level accounted for
+
+<https://bioconductor.org/packages/release/bioc/html/vissE.html> for result visualization
+
+<https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2015.00383/full> review on pathway analysis, probably outdated now
+
+<https://www.gsea-msigdb.org/gsea/msigdb/mouse/genesets.jsp?collection=CP> probably will just want curated pathways
+
+# Import Libraries
+
+```{r}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(scuttle)
+
+library(SpatialExperiment)
+library(standR)
+
+library(dplyr)
+library(tidyverse)
+
+library(ggplot2)
+library(ggalluvial)
+library(ggrepel)
+
+library(GSEABase)
+library(msigdb)
+library(msigdbr)
+library(GSVA)
+```
+
+#Load and Prepare Data
+
+```{r}
+#loading steps:
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+
+flimParams <- read_csv("matlab scripts/roiSummaryTable2.csv")
+
+#normalization steps:
+
+#make spatial experiment object
+dataSet_target <- aggregateCounts(dataSet)
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+
+assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
+assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+
+plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("Raw Counts") #logcounts
+seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("TMM Normalized")#logcounts
+#tmm does better than nanostring method by RLE metric
+
+tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
+
+#create object with counts summed across same segment types within samples
+summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample,colData(seDataSet)$Segment)), statistics = "sum")
+assay(summedRaw, "logcounts") <- log2(assay(summedRaw) + 1)
+summedRaw_tmm <- geomxNorm(summedRaw, method = "TMM")
+
+plotRLExpr(summedRaw, color = factor(sample), assay = "logcounts") + ggtitle("Raw")
+plotRLExpr(summedRaw_tmm, color = factor(sample), assay = "logcounts") + ggtitle("TMM Normalized")
+
+summedRaw_tmmPCKP <- summedRaw_tmm[, summedRaw_tmm$Segment == "PanCK+"]
+```
+
+#Load desired Gene Sets from msigdb <https://igordot.github.io/msigdbr/articles/msigdbr-intro.html>
+
+```{r}
+#head(msigdbr_collections(), n=500)
+#canPath_gene_sets <- msigdbr(species = "Mus musculus", category = 'C2', subcategory = 'CP')
+#head(canPath_gene_sets, n = 500)
+
+#mouseHallmarkSet <- getGmt("genesets//mh.all.v2023.2.Mm.symbols.gmt")
+
+mousSetSym <- getMsigdb(org = "mm", id = "SYM")
+mousSetSym <- appendKEGG(mousSetSym)
+mouseReactomeSet <- subsetCollection(mousSetSym,subcollection = c("CP:KEGG", "CP:WIKIPATHWAYS", "CP:REACTOME"))
+
+listCollections(mousSetSym)
+listSubCollections(mousSetSym)
+
+```
+
+#Do gene set enrichment analysis worried about extent of correct matching by gene name, entrez id and annotation library don't seem to work
+
+```{r}
+hallmarkParam <- gsvaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db")
+#hallmarkParam <- ssgseaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db")
+hallmarkResults <- gsva(hallmarkParam, verbose = TRUE)
+hallmarkResultsData <- as.data.frame(t(assay(hallmarkResults)))
+
+colMatrxPCKP <- as.data.frame(colData(summedRaw_tmmPCKP))
+joined <- left_join(colMatrxPCKP, flimParams, by = "sample")
+
+seletedFlimParams <- subset(joined, select = c(LT2mean, LT3mean))
+splsResult <- spls(hallmarkResultsData, seletedFlimParams, mode = "regression", scale = TRUE, ncomp = 2, keepX=50)
+
+merged <- merge(as.data.frame(colData(summedRaw_tmmPCKP)), hallmarkResultsData, by=0)
+
+splsResult$prop_expl_var
+
+variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
+head(variableImportance, n = 50)
+
+pathwayScores <- hallmarkResultsData["REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM"]
+toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(sample, Group.x, Sex.x)))
+
+  ggplot(toPlot, aes(x=REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, y=LT2mean, color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() +
+    xlab("Log Counts") + 
+    ylab("yLabel") + 
+    ggtitle("geneName") +
+    labs(shape = "Sex")
+
+summary(lm(LT2mean~REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, data=toPlot))
+```

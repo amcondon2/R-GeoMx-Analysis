@@ -51,7 +51,7 @@ dataSet <-
 
 dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
 
-flimParams <- read_csv("matlab scripts/roiSummaryTable.csv")
+flimParams <- read_csv("matlab scripts/roiSummaryTable2.csv")
 ```
 
 ## Normalize data
@@ -165,7 +165,21 @@ plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Odf3b", "LT2mean", "Chann
 plotGeneWrtFlimFeature(summedRaw_tmmPCKP, flimParams, "Nscme3l", "LT2mean", "Channel 2 Lifetime (ns)")
 ```
 ```{r}
-getCorrSquared <- function(seObject, flimParamsTable, geneName, colName, method) {
+ggplotRegression <- function (fit) { #from https://sejohnston.com/2012/08/09/a-quick-and-easy-function-to-plot-lm-results-in-r/
+
+require(ggplot2)
+
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5))) +
+  theme_bw()
+}
+
+getCorrSquared <- function(seObject, flimParamsTable, geneName, colName, method, doPlot=FALSE) {
   geneCounts <- (assay(seObject, 'logcounts')[geneName,])
   colMatrix <- as.data.frame(colData(summedRaw_tmmPCKP))
   joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
@@ -174,7 +188,13 @@ getCorrSquared <- function(seObject, flimParamsTable, geneName, colName, method)
   toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
 
   #browser()
+  
+  if (doPlot) {
+    browser()
+    ggplotRegression(lm(as.formula(paste(colName, "~ geneCounts")), toPlot))
+  }
   return(summary(lm(as.formula(paste(colName, "~ geneCounts")), toPlot))$adj.r.squared)
+  #return(summary(lm(as.formula(paste(colName, "~ geneCounts")), toPlot))$r.squared)
   
   #return(cor(toPlot$geneCounts, toPlot$LT2mean, method = method)^2)
 }
@@ -205,4 +225,55 @@ ggplot(corPlotMatrix, aes(x=rank, y=cor)) + geom_point() + theme_bw() + xlab("Ge
 
 ggplot(corPlotMatrix, aes(x=rank, y=sigma)) + geom_point() + theme_bw() + xlab("Gene VIP Rank") + ylab("Residual Standard Deviation") + ggtitle("Residual Standard Error of Fit Between Channel 2 Lifetime and Log Gene Count \n vs. Variable Importance in Projection Ranking") + theme(plot.title = element_text(hjust = 0.5))
 ```
+#PCA on flim 
+http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/
+```{r}
+colMatrx <- as.data.frame(colData(summedRaw_tmmPCKP))
+
+joined <- left_join(colMatrx, flimParams, by = "sample")
+
+res.pca <- prcomp(~ LT2mean + LT3mean + I2mean + I3mean + IR13mean + IR23mean + LT1mean + I1mean, data = joined, scale = TRUE)
+fviz_pca_biplot(res.pca, col.ind = joined$Group, repel = TRUE)
+
+# Helper function 
+#::::::::::::::::::::::::::::::::::::::::
+var_coord_func <- function(loadings, comp.sdev){
+  loadings*comp.sdev
+}
+# Compute Coordinates
+#::::::::::::::::::::::::::::::::::::::::
+loadings <- res.pca$rotation
+sdev <- res.pca$sdev
+var.coord <- t(apply(loadings, 1, var_coord_func, sdev)) 
+head(var.coord[, 1:4])
+
+# Compute Cos2
+#::::::::::::::::::::::::::::::::::::::::
+var.cos2 <- var.coord^2
+head(var.cos2[, 1:4])
+
+# Compute contributions
+#::::::::::::::::::::::::::::::::::::::::
+comp.cos2 <- apply(var.cos2, 2, sum)
+contrib <- function(var.cos2, comp.cos2){var.cos2*100/comp.cos2}
+var.contrib <- t(apply(var.cos2,1, contrib, comp.cos2))
+head(var.contrib[, 1:4], num=8)
+```
+
+#PLS-DA between FLIm and group
+```{r}
+selectedParams <- subset(flimParams, select=c('LT1mean', 'LT2mean', 'LT3mean', 'I1mean', 'I2mean', 'I3mean', 'IR13mean', 'IR23mean'))
+plsdaResultFlimGroup <- plsda(selectedParams, flimParams$Group)
+
+plsdaResultFlimGroup$prop_expl_var
+
+plotIndiv(plsdaResultFlimGroup, ellipse=TRUE, legend=TRUE)
+plotVar(plsdaResultFlimGroup)
+variableImportanceFlimGroup <- as.data.frame(vip(plsdaResultFlimGroup)) %>% arrange(desc(comp1))
+head(variableImportanceFlimGroup)
+
+# depict weight assigned to each of these variables
+plotLoadings(plsdaResultFlimGroup, comp = 1,method = 'mean', contrib = 'max')  
+```
+
 
