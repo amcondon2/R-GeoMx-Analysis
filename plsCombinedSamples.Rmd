@@ -31,6 +31,7 @@ library(ggrepel)
 
 #library(pls)
 library(mixOmics)
+library(factoextra)
 ```
 
 #Load Data
@@ -148,10 +149,10 @@ plotGeneWrtFlimFeature <- function(seObject, flimParamsTable, geneName, colName,
   joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
   flimFeature <- joined[colName]
   
-  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group.x, Sex.x)))
   
   flimCol <- ensym(colName)
-  ggplot(toPlot, aes(x=geneCounts, y=!!ensym(colName), color=Group, shape=Sex.x)) + geom_point() + theme_bw() +
+  ggplot(toPlot, aes(x=geneCounts, y=!!ensym(colName), color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() +
     xlab("Log Counts") + 
     ylab(yLabel) + 
     ggtitle(geneName) +
@@ -185,7 +186,7 @@ getCorrSquared <- function(seObject, flimParamsTable, geneName, colName, method,
   joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
   flimFeature <- joined[colName]
   
-  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group.x, Sex.x)))
 
   #browser()
   
@@ -205,7 +206,7 @@ getResidualError <- function(seObject, flimParamsTable, geneName, colName, metho
   joined <- left_join(colMatrxPCKP, flimParamsTable, by = "sample")
   flimFeature <- joined[colName]
   
-  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group, Sex.x)))
+  toPlot <- cbind(flimFeature, geneCounts, subset(joined, select = c(sample, Group.x, Sex.x)))
 
   #browser()
   return(sigma(lm(as.formula(paste(colName, "~ geneCounts")), toPlot)))
@@ -233,7 +234,7 @@ colMatrx <- as.data.frame(colData(summedRaw_tmmPCKP))
 joined <- left_join(colMatrx, flimParams, by = "sample")
 
 res.pca <- prcomp(~ LT2mean + LT3mean + I2mean + I3mean + IR13mean + IR23mean + LT1mean + I1mean, data = joined, scale = TRUE)
-fviz_pca_biplot(res.pca, col.ind = joined$Group, repel = TRUE)
+fviz_pca_biplot(res.pca, col.ind = joined$Group.x, repel = TRUE)
 
 # Helper function 
 #::::::::::::::::::::::::::::::::::::::::

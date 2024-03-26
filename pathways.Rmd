@@ -45,6 +45,8 @@ library(GSEABase)
 library(msigdb)
 library(msigdbr)
 library(GSVA)
+
+library(mixOmics)
 ```
 
 #Load and Prepare Data
@@ -142,7 +144,7 @@ toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(samp
   ggplot(toPlot, aes(x=REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, y=LT2mean, color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() +
     xlab("Log Counts") + 
     ylab("yLabel") + 
-    ggtitle("geneName") +
+    ggtitle("REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM") +
     labs(shape = "Sex")
 
 summary(lm(LT2mean~REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, data=toPlot))
