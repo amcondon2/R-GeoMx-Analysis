@@ -24,9 +24,11 @@ Interesting libraries:
 
 <https://www.gsea-msigdb.org/gsea/msigdb/mouse/genesets.jsp?collection=CP> probably will just want curated pathways
 
+"romer() is analogous to the Broad Institute's GSEA software, and no one has ever been able to state concisely what hypothesis that tests." https://support.bioconductor.org/p/88727/
+
 # Import Libraries
 
-```{r}
+```{r, include=FALSE}
 library(NanoStringNCTools)
 library(GeomxTools)
 library(scuttle)
@@ -44,9 +46,13 @@ library(ggrepel)
 library(GSEABase)
 library(msigdb)
 library(msigdbr)
+library(edgeR)
+library(limma)
 library(GSVA)
 
 library(mixOmics)
+
+library(tictoc)
 ```
 
 #Load and Prepare Data
@@ -77,47 +83,207 @@ flimParams <- read_csv("matlab scripts/roiSummaryTable2.csv")
 dataSet_target <- aggregateCounts(dataSet)
 seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
 
+priorCount <- 2 #in concordance with default value from edgeR, some use 0.5
 
-assay(seDataSet, "counts") <- assay(seDataSet, "GeoMx")
-assay(seDataSet, "logcounts") <- log2(assay(seDataSet, "GeoMx") + 1)
+assayNames(seDataSet) <- "counts"
+assay(seDataSet, "logcountsraw") <- log2(assay(seDataSet, "counts") + priorCount)
+assay(seDataSet, "logcounts") <- edgeR::cpm(seDataSet)
 
-plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("Raw Counts") #logcounts
-seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
-plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = 3) + ggtitle("TMM Normalized")#logcounts
-#tmm does better than nanostring method by RLE metric
-
-tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
+# plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = "logcountsraw") + ggtitle("Raw Log Counts")
+# plotRLExpr(seDataSet, ordannots = "Segment", color = Segment, assay = "logcounts") + ggtitle("Raw Log CPM")
+# seDataSet_tmm <- geomxNorm(seDataSet, method = "TMM")
+# plotRLExpr(seDataSet_tmm, ordannots = "Segment", color = Segment, assay = "logcounts") + ggtitle("TMM Normalized Log CPM")#logcounts
+# 
+# #tmm does better than nanostring method by RLE metric
+# 
+# tmmSubset <- seDataSet_tmm[, seDataSet_tmm$Segment == "PanCK+"]
 
 #create object with counts summed across same segment types within samples
-summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample,colData(seDataSet)$Segment)), statistics = "sum")
-assay(summedRaw, "logcounts") <- log2(assay(summedRaw) + 1)
+summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample, colData(seDataSet)$Segment)), statistics = "sum")
+assay(summedRaw, "logcountsraw") <- log2(assay(summedRaw) + priorCount)
+assay(summedRaw, "logcounts") <- edgeR::cpm(summedRaw)
 summedRaw_tmm <- geomxNorm(summedRaw, method = "TMM")
 
-plotRLExpr(summedRaw, color = factor(sample), assay = "logcounts") + ggtitle("Raw")
-plotRLExpr(summedRaw_tmm, color = factor(sample), assay = "logcounts") + ggtitle("TMM Normalized")
+plotRLExpr(summedRaw, color = factor(sample), assay = "logcountsraw") + ggtitle("Raw Log Counts")
+plotRLExpr(summedRaw, color = factor(sample), assay = "logcounts") + ggtitle("Raw Log CPM")
+plotRLExpr(summedRaw_tmm, color = factor(sample), assay = "logcounts") + ggtitle("TMM Normalized Log CPM")
 
+colData(summedRaw_tmm)$normFactor <- metadata(summedRaw_tmm)$norm.factor
 summedRaw_tmmPCKP <- summedRaw_tmm[, summedRaw_tmm$Segment == "PanCK+"]
+
+
+set.seed(100)
+summedRaw_tmmPCKP <- scater::runPCA(summedRaw_tmmPCKP)
+pca_results_summedRaw_tmmPCKP <- reducedDim(summedRaw_tmmPCKP, "PCA")
+plotPairPCA(summedRaw_tmmPCKP, precomputed = pca_results_summedRaw_tmmPCKP, color=Group, shape=Sex)
 ```
 
 #Load desired Gene Sets from msigdb <https://igordot.github.io/msigdbr/articles/msigdbr-intro.html>
+
+it looks like the 'msigdb' R package uses the old mouse MsigDB translation from WEHI. The hallmark sets from this package contain many more genes than are listed for mouse hallmarks on the the current MsigDB website. The sets downloaded in gmt symbol format from the website have set lengths which match. 
 
 ```{r}
 #head(msigdbr_collections(), n=500)
 #canPath_gene_sets <- msigdbr(species = "Mus musculus", category = 'C2', subcategory = 'CP')
 #head(canPath_gene_sets, n = 500)
 
-#mouseHallmarkSet <- getGmt("genesets//mh.all.v2023.2.Mm.symbols.gmt")
+hallmarkSet <- getGmt("genesets//mh.all.v2023.2.Mm.symbols.gmt")
+hallmarkMeta <- hallmarkSet[c("HALLMARK_BILE_ACID_METABOLISM", "HALLMARK_CHOLESTEROL_HOMEOSTASIS", "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_GLYCOLYSIS", "HALLMARK_HEME_METABOLISM", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_XENOBIOTIC_METABOLISM")]
 
-mousSetSym <- getMsigdb(org = "mm", id = "SYM")
-mousSetSym <- appendKEGG(mousSetSym)
-mouseReactomeSet <- subsetCollection(mousSetSym,subcollection = c("CP:KEGG", "CP:WIKIPATHWAYS", "CP:REACTOME"))
+bioCartaSet <- getGmt("genesets//m2.cp.biocarta.v2023.2.Mm.symbols.gmt")
+reactomeSet <- getGmt("genesets//m2.cp.reactome.v2023.2.Mm.symbols.gmt")
+wikiPathwaysSet <- getGmt("genesets//m2.cp.wikipathways.v2023.2.Mm.symbols.gmt")
 
-listCollections(mousSetSym)
-listSubCollections(mousSetSym)
+# mousSetSym <- getMsigdb(org = "mm", id = "SYM")
+# mousSetSym <- appendKEGG(mousSetSym)
+# hallmarkSet <- subsetCollection(mousSetSym, collection = "h")
+# pathwaysSet <- subsetCollection(mousSetSym,subcollection = c("CP:KEGG", "CP:WIKIPATHWAYS", "CP:REACTOME"))
+# 
+# listCollections(mousSetSym)
+# listSubCollections(mousSetSym)
 
 ```
 
-#Do gene set enrichment analysis worried about extent of correct matching by gene name, entrez id and annotation library don't seem to work
+#limma-voom based tests
+
+## Setup
+
+### General limma-voom Setup
+
+For the design matrix, may need to consider using sex as a blocking variable because of uneven balance between groups (??)
+
+The result from the biological coefficient of variation plot is interesting, it says variance in true expression of genes is higher for genes with lower counts. This is the opposite of what is usually seen in RNA-Seq, according to edgeR documentation. However, our plot has a similar shape to that shown in the standR package example. The common trend is small as expected for mouse lines. The plot looks good according to the guidelines in the standR example vignette. They recommend checking the high BCV are expected to be highly variable. 
+```{r}
+dge_tmmPCKP <- SE2DGEList(summedRaw_tmmPCKP)
+dge_tmmPCKP[["samples"]][["norm.factors"]] <- dge_tmmPCKP[["samples"]][["normFactor"]] #copy TMM normalization factors into object for use downstream
+
+design <- model.matrix(~0 + Group, data = colData(summedRaw_tmmPCKP)) #for categorical response, intercept dosent matter as control becomes encoded as intercept
+#design <- model.matrix(~0 + Group + Sex, data = colData(summedRaw_tmmPCKP))
+
+colnames(design) <- gsub("Group", "", colnames(design))
+contrasts <- makeContrasts(CvT = test - control, levels = colnames(design))
+
+keep <- filterByExpr(dge_tmmPCKP, design)
+table(keep)
+rownames(dge_tmmPCKP)[!keep]
+dge_tmmPCKP <- dge_tmmPCKP[keep, ]
+dge_tmmPCKP <- estimateDisp(dge_tmmPCKP, design = design, robust = TRUE)
+
+plotBCV(dge_tmmPCKP)
+bcv_df <- data.frame(
+  'BCV' = sqrt(dge_tmmPCKP$tagwise.dispersion),
+  'AveLogCPM' = dge_tmmPCKP$AveLogCPM,
+  'gene_id' = rownames(dge_tmmPCKP)
+)
+
+highbcv <- bcv_df$BCV > 0.8
+highbcv_df <- bcv_df[highbcv, ]
+points(highbcv_df$AveLogCPM, highbcv_df$BCV, col = "red")
+text(highbcv_df$AveLogCPM, highbcv_df$BCV, labels = highbcv_df$gene_id, pos = 4)
+
+v <- voom(dge_tmmPCKP, design, plot = TRUE)
+```
+### Preprocessing for sets
+
+standR example vignette https://davislaboratory.github.io/GeoMXAnalysisWorkflow/articles/GeoMXAnalysisWorkflow.html#gsea-and-visualisation-with-visse
+
+hallmark sets should contain mostly genes which are up-regulated??
+
+"...the refined hallmarks consist of at least 15 and at most 200 genes, which is the recommended size for use with GSEA. In the refinement procedure we focused on up-regulated genes and used one-tailed tests. The rationale for this stems from our empirical observation that expression patterns of down-regulated genes are often context dependent and tend to generalize poorly across datasets, while up-regulated genes are more consistent." from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4707969/ hallmark set paper
+
+
+```{r}
+hallmark_indices <- ids2indices(lapply(hallmarkSet, geneIds), rownames(v), remove.empty = FALSE)
+names(hallmark_indices) <- sapply(hallmarkSet, setName)
+
+numMissing_hallmark <- lengths(lapply(hallmarkSet, geneIds)) - lengths(hallmark_indices)
+propMissing_hallmark <- 100 * numMissing_hallmark / lengths(lapply(hallmarkSet, geneIds))
+summary(numMissing_hallmark)
+summary(propMissing_hallmark)
+
+
+bioCarta_indices <- ids2indices(lapply(bioCartaSet, geneIds), rownames(v), remove.empty = FALSE)
+names(bioCarta_indices) <- sapply(bioCartaSet, setName)
+
+numMissing_bioCarta <- lengths(lapply(bioCartaSet, geneIds)) - lengths(bioCarta_indices)
+propMissing_bioCarta <- 100* numMissing_bioCarta / lengths(lapply(bioCartaSet, geneIds))
+summary(numMissing_bioCarta)
+summary(propMissing_bioCarta)
+
+
+reactome_indices <- ids2indices(lapply(reactomeSet, geneIds), rownames(v), remove.empty = FALSE)
+names(reactome_indices) <- sapply(reactomeSet, setName)
+
+numMissing_reactome <- lengths(lapply(reactomeSet, geneIds)) - lengths(reactome_indices)
+propMissing_reactome <- 100* numMissing_reactome / lengths(lapply(reactomeSet, geneIds))
+summary(numMissing_reactome)
+summary(propMissing_reactome)
+reactome_indices <- reactome_indices[propMissing_reactome < 5]
+
+
+wikiPathways_indices <- ids2indices(lapply(wikiPathwaysSet, geneIds), rownames(v), remove.empty = FALSE)
+names(wikiPathways_indices) <- sapply(wikiPathwaysSet, setName)
+
+numMissing_wikiPathways <- lengths(lapply(wikiPathwaysSet, geneIds)) - lengths(wikiPathways_indices)
+propMissing_wikiPathways <- 100* numMissing_wikiPathways / lengths(lapply(wikiPathwaysSet, geneIds))
+summary(numMissing_wikiPathways)
+summary(propMissing_wikiPathways)
+wikiPathways_indices <- wikiPathways_indices[propMissing_wikiPathways < 5]
+
+#no need to filter by category or length when using only hallmarks
+
+# gsc_category <- sapply(hallmarkSet, function(x) bcCategory(collectionType(x)))
+# gsc_category <- gsc_category[sapply(fry_indices, length) > 5]
+# 
+# gsc_subcategory <- sapply(hallmarkSet, function(x) bcSubCategory(collectionType(x)))
+# gsc_subcategory <- gsc_subcategory[sapply(fry_indices, length) > 5]
+# 
+# fry_indices <- fry_indices[sapply(fry_indices, length) > 5]
+# 
+# names(gsc_category) = names(gsc_subcategory) = names(fry_indices)
+```
+
+## self-contained testing of sets with ROAST
+
+https://academic.oup.com/bioinformatics/article/26/17/2176/200022
+
+
+```{r}
+#fry_indices_cat <- split(fry_indices, gsc_category[names(fry_indices)])
+nrot <- 9999
+
+tic()
+roastHallmarkResult <- limma::mroast(v, index = hallmark_indices, design = design, contrast = contrasts, nrot = nrot,robust = TRUE)
+toc()
+
+tic()
+roastBioCartaResult <- limma::mroast(v, index = bioCarta_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+tic()
+roastReactomeResult <- limma::mroast(v, index = reactome_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+tic()
+roastWikiPathwaysResult <- limma::mroast(v, index = wikiPathways_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+```
+## competitive testing with CAMERA
+```{r}
+tic()
+cameraHallmarkResult <- limma::camera(v, index = hallmark_indices, contrast = contrasts)
+cameraBioCartaResult <- limma::camera(v, index = bioCarta_indices, contrast = contrasts)
+cameraReactomeResult <- limma::camera(v, index = reactome_indices, contrast = contrasts)
+cameraWikiPathwaysResult <- limma::camera(v, index = wikiPathways_indices, contrast = contrasts)
+toc()
+```
+
+
+#Single Set Analysis
+## ssGSEA
+
+worried about extent of correct matching by gene name, entrez id and annotation library don't seem to work
 
 ```{r}
 hallmarkParam <- gsvaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db")
@@ -149,3 +315,6 @@ toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(samp
 
 summary(lm(LT2mean~REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, data=toPlot))
 ```
+
+
+
