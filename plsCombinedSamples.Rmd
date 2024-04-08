@@ -113,7 +113,7 @@ head(variableImportance, n = 50)
 
 #Do sPLS-DA on treatment group with summed data
 ```{r}
-splsdaResult <- splsda(summedCountsMatrixPCKP, as.factor(joined$Group), keepX = 50, scale = TRUE, ncomp=2)
+splsdaResult <- splsda(summedCountsMatrixPCKP, as.factor(joined$Group.x), keepX = 50, scale = TRUE, ncomp=2)
 
 splsdaResult$prop_expl_var
 #plotIndiv(splsdaResult)

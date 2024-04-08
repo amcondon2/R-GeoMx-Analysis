@@ -278,6 +278,18 @@ cameraReactomeResult <- limma::camera(v, index = reactome_indices, contrast = co
 cameraWikiPathwaysResult <- limma::camera(v, index = wikiPathways_indices, contrast = contrasts)
 toc()
 ```
+### Write outputs to CSV
+```{r}
+write.csv(roastHallmarkResult, file = "Pathway_Results/roastHallmark.csv")
+write.csv(roastBioCartaResult, file = "Pathway_Results/roastBioCarta.csv")
+write.csv(roastReactomeResult, file = "Pathway_Results/roastReactome.csv")
+write.csv(roastWikiPathwaysResult, file = "Pathway_Results/roastWikiPathways.csv")
+
+write.csv(cameraHallmarkResult, file = "Pathway_Results/cameraHallmark.csv")
+write.csv(cameraBioCartaResult, file = "Pathway_Results/cameraBioCarta.csv")
+write.csv(cameraReactomeResult, file = "Pathway_Results/cameraReactome.csv")
+write.csv(cameraWikiPathwaysResult, file = "Pathway_Results/cameraWikiPathways.csv")
+```
 
 
 #Single Set Analysis
