@@ -38,6 +38,7 @@ library(standR)
 
 library(dplyr)
 library(tidyverse)
+library(DT)
 
 library(ggplot2)
 library(ggalluvial)
@@ -53,6 +54,7 @@ library(GSVA)
 library(mixOmics)
 
 library(tictoc)
+library(EnhancedVolcano)
 ```
 
 #Load and Prepare Data
@@ -183,6 +185,64 @@ text(highbcv_df$AveLogCPM, highbcv_df$BCV, labels = highbcv_df$gene_id, pos = 4)
 
 v <- voom(dge_tmmPCKP, design, plot = TRUE)
 ```
+
+## Differential Expression
+```{r}
+fit <- lmFit(v)
+
+fit_contrast <- contrasts.fit(fit, contrasts = contrasts)
+
+efit <- eBayes(fit_contrast, robust = TRUE)
+
+pVal <- 0.05
+
+results_efit <- decideTests(efit, p.value = pVal)
+summary(results_efit)
+
+limma::plotMA(v)
+limma::plotMA(fit, main="Treatment vs. Control comparison")
+
+de_results_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf)
+de_genes_toptable_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf, p.value = pVal)
+
+de_results_BvT %>% 
+  mutate(DE = ifelse(logFC > 0 & adj.P.Val <pVal, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<pVal, "DOWN", "NOT DE"))) %>%
+  ggplot(aes(AveExpr, logFC, col = DE)) + 
+  geom_point(shape = 1, size = 1) + 
+  geom_text_repel(data = de_genes_toptable_BvT %>% 
+                    mutate(DE = ifelse(logFC > 0 & adj.P.Val <pVal, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<pVal, "DOWN", "NOT DE"))) %>%
+                    rownames_to_column(), aes(label = rowname)) +
+  theme_bw() +
+  xlab("Average log-expression") +
+  ylab("Log-fold-change") +
+  ggtitle("B cell zone vs. T cell zone in Lymph node (limma-voom)") +
+  scale_color_manual(values = c("blue","gray","red")) +
+  theme(text = element_text(size=15))
+
+updn_cols <- c(RColorBrewer::brewer.pal(6, 'Greens')[2], RColorBrewer::brewer.pal(6, 'Purples')[2])
+
+de_genes_toptable_BvT %>% 
+  dplyr::select(c("logFC", "AveExpr", "P.Value", "adj.P.Val")) %>%
+  DT::datatable(caption = 'B cell zone vs. T cell zone in Lymph node (limma-voom)') %>%
+  DT::formatStyle('logFC',
+                valueColumns = 'logFC',
+                backgroundColor = DT::styleInterval(0, rev(updn_cols))) %>%
+  DT::formatSignif(1:4, digits = 4)
+
+volcanoplot(efit, style = "p-value")
+EnhancedVolcano(de_genes_toptable_BvT,
+                lab = de_genes_toptable_BvT$TargetName,
+                x='logFC',
+                y='P.Value') + theme_bw(base_size = 10)
+
+EnhancedVolcano(de_genes_toptable_BvT,
+                lab = de_genes_toptable_BvT$TargetName,
+                x='logFC',
+                y='adj.P.Val') + theme_bw(base_size = 10)
+```
+
 ### Preprocessing for sets
 
 standR example vignette https://davislaboratory.github.io/GeoMXAnalysisWorkflow/articles/GeoMXAnalysisWorkflow.html#gsea-and-visualisation-with-visse
@@ -297,36 +357,36 @@ write.csv(cameraWikiPathwaysResult, file = "Pathway_Results/cameraWikiPathways.c
 
 worried about extent of correct matching by gene name, entrez id and annotation library don't seem to work
 
-```{r}
-hallmarkParam <- gsvaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db")
-#hallmarkParam <- ssgseaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db")
-hallmarkResults <- gsva(hallmarkParam, verbose = TRUE)
-hallmarkResultsData <- as.data.frame(t(assay(hallmarkResults)))
+<!-- ```{r} -->
+<!-- hallmarkParam <- gsvaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db") -->
+<!-- #hallmarkParam <- ssgseaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db") -->
+<!-- hallmarkResults <- gsva(hallmarkParam, verbose = TRUE) -->
+<!-- hallmarkResultsData <- as.data.frame(t(assay(hallmarkResults))) -->
 
-colMatrxPCKP <- as.data.frame(colData(summedRaw_tmmPCKP))
-joined <- left_join(colMatrxPCKP, flimParams, by = "sample")
+<!-- colMatrxPCKP <- as.data.frame(colData(summedRaw_tmmPCKP)) -->
+<!-- joined <- left_join(colMatrxPCKP, flimParams, by = "sample") -->
 
-seletedFlimParams <- subset(joined, select = c(LT2mean, LT3mean))
-splsResult <- spls(hallmarkResultsData, seletedFlimParams, mode = "regression", scale = TRUE, ncomp = 2, keepX=50)
+<!-- seletedFlimParams <- subset(joined, select = c(LT2mean, LT3mean)) -->
+<!-- splsResult <- spls(hallmarkResultsData, seletedFlimParams, mode = "regression", scale = TRUE, ncomp = 2, keepX=50) -->
 
-merged <- merge(as.data.frame(colData(summedRaw_tmmPCKP)), hallmarkResultsData, by=0)
+<!-- merged <- merge(as.data.frame(colData(summedRaw_tmmPCKP)), hallmarkResultsData, by=0) -->
 
-splsResult$prop_expl_var
+<!-- splsResult$prop_expl_var -->
 
-variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1))
-head(variableImportance, n = 50)
+<!-- variableImportance <- as.data.frame(vip(splsResult)) %>% arrange(desc(comp1)) -->
+<!-- head(variableImportance, n = 50) -->
 
-pathwayScores <- hallmarkResultsData["REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM"]
-toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(sample, Group.x, Sex.x)))
+<!-- pathwayScores <- hallmarkResultsData["REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM"] -->
+<!-- toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(sample, Group.x, Sex.x))) -->
 
-  ggplot(toPlot, aes(x=REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, y=LT2mean, color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() +
-    xlab("Log Counts") + 
-    ylab("yLabel") + 
-    ggtitle("REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM") +
-    labs(shape = "Sex")
+<!--   ggplot(toPlot, aes(x=REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, y=LT2mean, color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() + -->
+<!--     xlab("Log Counts") +  -->
+<!--     ylab("yLabel") +  -->
+<!--     ggtitle("REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM") + -->
+<!--     labs(shape = "Sex") -->
 
-summary(lm(LT2mean~REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, data=toPlot))
-```
+<!-- summary(lm(LT2mean~REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, data=toPlot)) -->
+<!-- ``` -->
 
 
 
