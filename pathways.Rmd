@@ -261,7 +261,7 @@ propMissing_hallmark <- 100 * numMissing_hallmark / lengths(lapply(hallmarkSet, 
 summary(numMissing_hallmark)
 summary(propMissing_hallmark)
 
-
+#these blocks should be refactored into functions
 bioCarta_indices <- ids2indices(lapply(bioCartaSet, geneIds), rownames(v), remove.empty = FALSE)
 names(bioCarta_indices) <- sapply(bioCartaSet, setName)
 
@@ -351,11 +351,83 @@ write.csv(cameraReactomeResult, file = "Pathway_Results/cameraReactome.csv")
 write.csv(cameraWikiPathwaysResult, file = "Pathway_Results/cameraWikiPathways.csv")
 ```
 
+## Checking Gene Set - Differential Expression Correspondance
+
+```{r}
+propsFromDE <- function(roastResultTable, testResults, gsCollection) {
+  propUpDE <- c()
+  propDownDE <- c()
+  nGenesDE <- c()
+  
+  for (curSetName in rownames(roastResultTable)) { #loop is bad; i dont care
+    filteredResults <- subset(testResults, rownames(testResults) %in% geneIds(gsCollection[[curSetName]])) 
+
+    propUpDE <- append(propUpDE, abs(sum(pmax(filteredResults, 0)) / length(filteredResults)))
+    propDownDE <- append(propDownDE, abs(sum(pmin(filteredResults, 0)) / length(filteredResults)))
+    nGenesDE <- append(nGenesDE, length(filteredResults))
+  }
+  
+  return(cbind(roastResultTable, propUpDE, propDownDE, nGenesDE))
+}
+
+roastHallmarkResultDE <- propsFromDE(roastHallmarkResult, results_efit, hallmarkSet)
+roastReactomeResultDE <- propsFromDE(roastReactomeResult, results_efit, reactomeSet)
+
+ggplot(data = roastHallmarkResultDE) + geom_point(aes(y=PropDown, x=propDownDE, color = "Down")) + geom_point(aes(y=PropUp, x=propUpDE, color="Up")) + theme_bw() + xlab("Estimated DE proportion from DecideTests") + ylab("Estimated DE Proportion from Roast") + ggtitle("Hallmark Pathways")
+
+ggplot(data = roastReactomeResultDE) + geom_point(aes(y=PropDown, x=propDownDE, color = "Down")) + geom_point(aes(y=PropUp, x=propUpDE, color="Up")) + theme_bw() + xlab("Estimated DE proportion from DecideTests") + ylab("Estimated DE Proportion from Roast") + ggtitle("Reactome Pathways")
+
+ggplot(data = roastHallmarkResultDE) + geom_point(aes(y=100 * (PropDown - propDownDE)/propDownDE, x=NGenes, color = "Down")) + geom_point(aes(y=100 * (PropUp - propUpDE)/propUpDE, x=NGenes, color="Up")) + theme_bw() + xlab("Gene Set Size") + ylab("Percent Roast-decideTests Discrepancy") + ggtitle("Hallmark Pathways")
+
+ggplot(data = roastReactomeResultDE) + geom_point(aes(y=100 * (PropDown - propDownDE)/propDownDE, x=NGenes, color = "Down")) + geom_point(aes(y=100 * (PropUp - propUpDE)/propUpDE, x=NGenes, color="Up")) + theme_bw() + xlab("Gene Set Size") + ylab("Percent Roast-decideTests Discrepancy") + ggtitle("Reactome Pathways")
+
+plotVolcanoFromSet <- function(topTable, gsCollection, gsName, topN) {
+  filteredToptable <- subset(topTable, rownames(topTable) %in% geneIds(gsCollection[[gsName]]))
+  
+  EnhancedVolcano(filteredToptable,
+                lab = filteredToptable$TargetName,
+                x='logFC',
+                y='adj.P.Val',
+                title = gsName,
+                selectLab = filteredToptable %>% arrange(desc(abs(logFC))) %>% slice(1:topN) %>% pull("TargetName")) + theme_bw(base_size = 10)
+}
+
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_FATTY_ACID_METABOLISM", 5)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_APOPTOSIS", 10)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_INFLAMMATORY_RESPONSE", 10)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_REACTIVE_OXIGEN_SPECIES_PATHWAY", 10)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_OXIDATIVE_PHOSPHORYLATION", 10)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_DNA_REPAIR", 10)
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_GLYCOLYSIS", 10)
+
+plotVolcanoFromSet(de_results_BvT, hallmarkSet, "HALLMARK_G2M_CHECKPOINT", 10)
+
+
+```
+
 
 #Single Set Analysis
 ## ssGSEA
 
 worried about extent of correct matching by gene name, entrez id and annotation library don't seem to work
+-its actually fine, checked above
+
+```{r}
+library(singscore)
+glycoScore <- simpleScore(rankGenes(dge_tmmPCKP), hallmarkSet[["HALLMARK_GLYCOLYSIS"]], knownDirection = FALSE)
+glycoScore$Pvals <- getPvals(generateNull(hallmarkSet[["HALLMARK_GLYCOLYSIS"]], downSet = NULL, rankGenes(dge_tmmPCKP), knownDirection = FALSE), glycoScore)
+
+oxScore <- simpleScore(rankGenes(dge_tmmPCKP), hallmarkSet[["HALLMARK_OXIDATIVE_PHOSPHORYLATION"]], knownDirection = FALSE)
+oxScore$Pvals <- getPvals(generateNull(hallmarkSet[["HALLMARK_OXIDATIVE_PHOSPHORYLATION"]], downSet = NULL, rankGenes(dge_tmmPCKP), knownDirection = FALSE, B=1e4), oxScore)
+
+#plotNull(generateNull(hallmarkSet[["HALLMARK_OXIDATIVE_PHOSPHORYLATION"]], downSet = NULL, rankGenes(dge_tmmPCKP), knownDirection = FALSE, B=1e4), oxScore, oxScore$Pvals, sampleNames = rownames(oxScore))
+
+group <- dge_tmmPCKP$samples[["Group"]]
+singleScores <- cbind(merge(glycoScore, oxScore, all=TRUE, by="row.names", suffixes = c(".glyco", ".oxPhos")),group)
+
+ggplot(data=singleScores) + geom_point(aes(x=TotalScore.glyco, y=TotalScore.oxPhos, color=group)) + theme_bw()
+```
+
 
 <!-- ```{r} -->
 <!-- hallmarkParam <- gsvaParam(summedRaw_tmmPCKP, mouseReactomeSet, assay = 'logcounts', minSize = 5, annotation = "org.Mm.eg.db") -->
@@ -380,8 +452,8 @@ worried about extent of correct matching by gene name, entrez id and annotation 
 <!-- toPlot <- cbind(joined["LT2mean"], pathwayScores, subset(joined, select = c(sample, Group.x, Sex.x))) -->
 
 <!--   ggplot(toPlot, aes(x=REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM, y=LT2mean, color=Group.x, shape=Sex.x)) + geom_point() + theme_bw() + -->
-<!--     xlab("Log Counts") +  -->
-<!--     ylab("yLabel") +  -->
+<!--     xlab("Log Counts") + -->
+<!--     ylab("yLabel") + -->
 <!--     ggtitle("REACTOME_VITAMIN_B2_RIBOFLAVIN_METABOLISM") + -->
 <!--     labs(shape = "Sex") -->
 
