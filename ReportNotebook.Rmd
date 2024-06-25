@@ -1,0 +1,212 @@
+---
+title: "Report Companion Notebook"
+output:
+  html_document:
+    keep_md: true 
+---
+
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 900,
+                      echo = FALSE,
+                      cache = TRUE)
+```
+
+#Library Import
+```{r libraries}
+library(NanoStringNCTools)
+library(GeomxTools)
+library(scuttle)
+
+library(SpatialExperiment)
+library(standR)
+
+library(dplyr)
+library(tidyverse)
+library(DT)
+
+library(ggplot2)
+library(ggalluvial)
+library(ggrepel)
+
+library(GSEABase)
+library(msigdb)
+library(msigdbr)
+library(edgeR)
+library(limma)
+library(GSVA)
+
+library(scater)
+library(mixOmics)
+
+library(tictoc)
+library(EnhancedVolcano)
+```
+
+# 0. Data Import
+
+## Load with GeomxTools
+```{r import-data}
+#loading steps:
+datadir <- "data/"
+DCCFiles <- dir(datadir, pattern=".dcc$", full.names=TRUE)
+PKCFiles <- unzip(zipfile = file.path(datadir,  "/Mm_R_NGS_WTA_v1.0.zip"))
+SampleAnnotationFile <- file.path(datadir, "ModifiedWorksheet2.xlsx")
+
+dataSet <-
+  readNanoStringGeoMxSet(dccFiles = DCCFiles,
+                                          pkcFiles = PKCFiles,
+                                          phenoDataFile = SampleAnnotationFile,
+                                          phenoDataSheet = "Sheet1",
+                                          phenoDataDccColName = "Sample_ID",
+                                          protocolDataColNames = c("Roi",
+                                                                   "Aoi"))
+
+dataSet <- dataSet[,pData(dataSet)$SlideName != "No Template Control"] #remove no template control
+
+flimParams <- read_csv("matlab scripts/roiSummaryTable2.csv")
+```
+
+## Coerce to SpatialExperiment Object
+```{r spatialexp}
+dataSet_target <- aggregateCounts(dataSet)
+seDataSet <- as.SpatialExperiment(dataSet_target, normData = "exprs" ,forceRaw = TRUE)
+
+priorCount <- 2 #in concordance with default value from edgeR, some use 0.5
+
+assayNames(seDataSet) <- "counts"
+assay(seDataSet, "logcountsraw") <- log2(assay(seDataSet, "counts") + priorCount)
+assay(seDataSet, "logcounts") <- edgeR::cpm(seDataSet)
+```
+
+# 1. Quality Control
+
+## Gene Level
+
+```{r}
+dim(seDataSet)
+
+seDataSet <- addPerROIQC(seDataSet, rm_genes=TRUE, sample_fraction = 0.9, min_count = 5)
+
+dim(seDataSet)
+metadata(seDataSet) |> names()
+
+
+plotGeneQC(seDataSet, ordannots = "Segment", col = Segment, point_size = 2, top_n = 9)
+```
+## Roi Level
+
+```{r}
+plotROIQC(seDataSet, x_axis="Nuclei", y_axis = "lib_size",  x_lab = "Nuclei", x_threshold = 50, color = Segment)
+
+plotROIQC(seDataSet, x_axis="Area", y_axis = "lib_size", x_lab = "Area", color = Segment)
+```
+
+# 2. Normalization
+
+## Assesing Normalization Techniques
+
+## Aggregating Within Samples, PCA
+```{r}
+summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample, colData(seDataSet)$Segment)), statistics = "sum")
+assay(summedRaw, "logcountsraw") <- log2(assay(summedRaw) + priorCount)
+assay(summedRaw, "logcounts") <- edgeR::cpm(summedRaw)
+
+set.seed(101)
+seDataSet <- scater::runPCA(seDataSet)
+pca_results_seDataSet <- reducedDim(seDataSet, "PCA")
+plotPairPCA(seDataSet, precomputed = pca_results_seDataSet, color=factor(sample), shape=Segment, title="Seperated")
+summedRaw <- scater::runPCA(summedRaw)
+pca_results_summedRaw <- reducedDim(summedRaw, "PCA")
+plotPairPCA(summedRaw, precomputed = pca_results_summedRaw, color=factor(sample), shape=Segment, title="Summed")
+```
+
+## Normalization with TMM
+```{r doNorm}
+summedRaw_tmm <- geomxNorm(summedRaw, method = "TMM")
+colData(summedRaw_tmm)$normFactor <- metadata(summedRaw_tmm)$norm.factor
+summedRaw_tmmPCKP <- summedRaw_tmm[, summedRaw_tmm$Segment == "PanCK+"]
+```
+
+## Assesing Normalization
+```{r plotNorm}
+plotRLExpr(summedRaw, color = factor(sample), assay = "logcounts") + ggtitle("Raw Log CPM")
+plotRLExpr(summedRaw_tmm, color = factor(sample), assay = "logcounts") + ggtitle("TMM Normalized Log CPM")
+
+summedRaw_PCKP <- summedRaw[, summedRaw$Segment == "PanCK+"]
+summedRaw_PCKP <- scater::runPCA(summedRaw_PCKP)
+pca_results_summedRaw_PCKP <- reducedDim(summedRaw_PCKP, "PCA")
+plotPairPCA(summedRaw_PCKP, precomputed = pca_results_summedRaw_PCKP, color=Group, shape=Sex, title="Raw, PanCK+")
+
+summedRaw_tmmPCKP <- scater::runPCA(summedRaw_tmmPCKP)
+pca_results_summedRaw_tmmPCKP <- reducedDim(summedRaw_tmmPCKP, "PCA")
+plotPairPCA(summedRaw_tmmPCKP, precomputed = pca_results_summedRaw_tmmPCKP, color=Group, shape=Sex, title="Normalized, PanCK+")
+```
+
+# 3. Dimension Reduction Analysis
+```{r}
+summedRaw_tmmPCKP <- scater::runPCA(summedRaw_tmmPCKP, scale = TRUE, exprs_values = "logcounts", ncomponents = 20) #run PCA on log counts
+
+pca_results_summedRaw_tmmPCKP <- reducedDim(summedRaw_tmmPCKP, "PCA")
+
+plotScreePCA(summedRaw_tmmPCKP, precomputed = pca_results_summedRaw_tmmPCKP)
+#drawPCA(summedRaw_tmmPCKP, precomputed = pca_results, col = Group)
+
+plotPCA(summedRaw_tmmPCKP, color_by="Group", shape_by="Sex", ncomponents=5) + ggtitle("PanCK+")
+
+  #plotPCAbiplot(summedRaw_tmmPCKP, n_loadings = 10, precomputed = pca_results, col = Group)
+
+
+#investigate gene relation to PCs
+pc_loadings_tmm <- as_tibble(attr(pca_results_summedRaw_tmmPCKP, "rotation"), rownames = "gene")
+
+#https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
+top_genes_tmm <- pc_loadings_tmm %>% 
+  # select only the PCs we are interested in
+  dplyr::select(gene, PC1) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:20) %>% 
+  # pull the gene column as a vector
+  pull(gene) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+dput(top_genes_tmm)
+
+top_loadings_tmm <- pc_loadings_tmm %>% 
+  filter(gene %in% top_genes_tmm)
+
+pca_readable_tmm <- as_tibble(pca_results_summedRaw_tmmPCKP, rownames = "Sample")
+pca_readable_tmm <- cbind(pca_readable_tmm, as_tibble(colData(summedRaw_tmmPCKP)))
+
+loadScale <- 50
+ggplot() +
+  geom_segment(data = top_loadings_tmm, aes(x = 0, y = 0, xend = PC1*loadScale, yend = PC4*loadScale), 
+               arrow = arrow(length = unit(0.1, "in")),
+               color = "brown") +
+  geom_text_repel(data = top_loadings_tmm, aes(x = PC1*loadScale, y = PC4*loadScale, label = gene),
+            nudge_y = 0.005, size = 3) +
+  geom_point(data = pca_readable_tmm, aes(x = PC1, y = PC4, color=factor(sample), shape=Group)) +
+  scale_x_continuous(expand = c(0.02, 0.02)) +
+  theme_bw() +
+  #coord_fixed(ratio = 6/27) +
+  xlab("PC1 (27%)") + ylab("PC4 (6%)")
+
+
+plotExplanatoryVariables(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
+plotExplanatoryPCs(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
+getExplanatoryPCs(summedRaw_tmmPCKP)
+```
+
+# 4. Gene-Level Differential Expression
+```{r}
+dge_tmmPCKP <- SE2DGEList(summedRaw_tmmPCKP)
+dge_tmmPCKP[["samples"]][["norm.factors"]] <- dge_tmmPCKP[["samples"]][["normFactor"]] #copy TMM normalization factors into object for use downstream
+```
+
