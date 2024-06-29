@@ -108,7 +108,7 @@ plotROIQC(seDataSet, x_axis="Area", y_axis = "lib_size", x_lab = "Area", color =
 
 ## Aggregating Within Samples, PCA
 ```{r}
-summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample, colData(seDataSet)$Segment)), statistics = "sum")
+summedRaw <- aggregateAcrossCells(seDataSet, as.factor(paste(colData(seDataSet)$sample, colData(seDataSet)$Segment)), statistics = "sum", coldata.merge = list(Area=sum, Nuclei=sum, lib_size=sum, countOfLowEprGene=sum))
 assay(summedRaw, "logcountsraw") <- log2(assay(summedRaw) + priorCount)
 assay(summedRaw, "logcounts") <- edgeR::cpm(summedRaw)
 
@@ -141,6 +141,37 @@ plotPairPCA(summedRaw_PCKP, precomputed = pca_results_summedRaw_PCKP, color=Grou
 summedRaw_tmmPCKP <- scater::runPCA(summedRaw_tmmPCKP)
 pca_results_summedRaw_tmmPCKP <- reducedDim(summedRaw_tmmPCKP, "PCA")
 plotPairPCA(summedRaw_tmmPCKP, precomputed = pca_results_summedRaw_tmmPCKP, color=Group, shape=Sex, title="Normalized, PanCK+")
+
+
+#Assessment with scater's R^2 thing, all segments
+
+summedRaw_varexp <- as.data.frame(getVarianceExplained(summedRaw, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene", "Segment")) / 100) %>% rownames_to_column(var="gene") %>% pivot_longer(cols= c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene", "Segment"),names_to="feature", values_to = "R2")
+summedRaw_tmm_varexp <- as.data.frame(getVarianceExplained(summedRaw_tmm, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene", "Segment")) / 100) %>% rownames_to_column(var="gene") %>% pivot_longer(cols= c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene", "Segment"),names_to="feature", values_to = "R2")
+
+ggplot(summedRaw_varexp, aes(x=R2, color=feature)) + geom_density() + scale_x_continuous(transform = "log10", limits=c(1e-3, 1)) + theme_bw() + xlab(bquote("R"^2)) + ggtitle("Raw, Summed Dataset")
+
+ggplot(summedRaw_tmm_varexp, aes(x=R2, color=feature)) + geom_density() + scale_x_continuous(transform = "log10", limits=c(1e-3, 1)) + theme_bw() + xlab(bquote("R"^2)) + ggtitle("TMM Normalized Summed Dataset")
+
+medR2_summed <- summarise(medianPercentExp = 100*median(R2), summedRaw_varexp, .by = 'feature')
+medR2_summed_tmm <- summarise(medianPercentExp = 100*median(R2), summedRaw_tmm_varexp, .by = 'feature')
+
+print(medR2_summed)
+print(medR2_summed_tmm)
+
+
+#Assessment with scater's R^2 thing, PanCK+ segments only
+summedRaw_PCKP_varexp <- as.data.frame(getVarianceExplained(summedRaw_PCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene")) / 100) %>% rownames_to_column(var="gene") %>% pivot_longer(cols= c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"),names_to="feature", values_to = "R2")
+summedRaw_tmmPCKP_varexp <- as.data.frame(getVarianceExplained(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene")) / 100) %>% rownames_to_column(var="gene") %>% pivot_longer(cols= c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"),names_to="feature", values_to = "R2")
+
+ggplot(summedRaw_PCKP_varexp, aes(x=R2, color=feature)) + geom_density() + scale_x_continuous(transform = "log10", limits=c(5e-3, 1)) + theme_bw() + xlab(bquote("R"^2)) + ggtitle("Raw PanCK+")
+
+ggplot(summedRaw_tmmPCKP_varexp, aes(x=R2, color=feature)) + geom_density() + scale_x_continuous(transform = "log10", limits=c(5e-3, 1)) + theme_bw() + xlab(bquote("R"^2)) + ggtitle("TMM Normalized PanCK+")
+
+medR2_PCKP <- summarise(medianPercentExp = 100*median(R2), summedRaw_PCKP_varexp, .by = 'feature')
+medR2_tmmPCKP <- summarise(medianPercentExp = 100*median(R2), summedRaw_tmmPCKP_varexp, .by = 'feature')
+
+print(medR2_PCKP)
+print(medR2_tmmPCKP)
 ```
 
 # 3. Dimension Reduction Analysis
@@ -199,8 +230,8 @@ ggplot() +
   xlab("PC1 (27%)") + ylab("PC4 (6%)")
 
 
-plotExplanatoryVariables(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"))
-plotExplanatoryPCs(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei"),npcs_to_plot = 5)
+plotExplanatoryVariables(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"))
+plotExplanatoryPCs(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"),npcs_to_plot = 5)
 getExplanatoryPCs(summedRaw_tmmPCKP)
 ```
 
