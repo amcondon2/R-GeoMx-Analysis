@@ -41,6 +41,10 @@ library(mixOmics)
 
 library(tictoc)
 library(EnhancedVolcano)
+
+library(singscore)
+library(factoextra)
+library(ggpmisc)
 ```
 
 # 0. Data Import
@@ -231,13 +235,289 @@ ggplot() +
 
 
 plotExplanatoryVariables(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"))
-plotExplanatoryPCs(summedRaw_tmmPCKP, variables=c("Group", "Sex", "Area", "sample", "lib_size", "Nuclei", "countOfLowEprGene"),npcs_to_plot = 5)
-getExplanatoryPCs(summedRaw_tmmPCKP)
 ```
 
 # 4. Gene-Level Differential Expression
+
+## Contrasts and voom setup
 ```{r}
 dge_tmmPCKP <- SE2DGEList(summedRaw_tmmPCKP)
 dge_tmmPCKP[["samples"]][["norm.factors"]] <- dge_tmmPCKP[["samples"]][["normFactor"]] #copy TMM normalization factors into object for use downstream
+
+design <- model.matrix(~0 + Group, data = colData(summedRaw_tmmPCKP)) #for categorical response, intercept dosent matter as control becomes encoded as intercept
+#design <- model.matrix(~0 + Group + Sex, data = colData(summedRaw_tmmPCKP))
+
+colnames(design) <- gsub("Group", "", colnames(design))
+contrasts <- makeContrasts(CvT = test - control, levels = colnames(design))
+
+keep <- filterByExpr(dge_tmmPCKP, design)
+table(keep)
+rownames(dge_tmmPCKP)[!keep]
+dge_tmmPCKP <- dge_tmmPCKP[keep, ]
+dge_tmmPCKP <- estimateDisp(dge_tmmPCKP, design = design, robust = TRUE)
+
+plotBCV(dge_tmmPCKP)
+bcv_df <- data.frame(
+  'BCV' = sqrt(dge_tmmPCKP$tagwise.dispersion),
+  'AveLogCPM' = dge_tmmPCKP$AveLogCPM,
+  'gene_id' = rownames(dge_tmmPCKP)
+)
+
+highbcv <- bcv_df$BCV > 0.8
+highbcv_df <- bcv_df[highbcv, ]
+points(highbcv_df$AveLogCPM, highbcv_df$BCV, col = "red")
+text(highbcv_df$AveLogCPM, highbcv_df$BCV, labels = highbcv_df$gene_id, pos = 4)
+
+v <- voom(dge_tmmPCKP, design, plot = TRUE)
 ```
+
+## Differential Expression with eBayes, decideTests
+```{r}
+fit <- lmFit(v)
+
+fit_contrast <- contrasts.fit(fit, contrasts = contrasts)
+
+efit <- eBayes(fit_contrast, robust = TRUE)
+
+pVal <- 0.05
+
+results_efit <- decideTests(efit, p.value = pVal)
+summary(results_efit)
+
+limma::plotMA(v)
+limma::plotMA(fit, main="Treatment vs. Control comparison")
+
+de_results_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf)
+de_genes_toptable_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf, p.value = pVal)
+
+de_results_BvT %>% 
+  mutate(DE = ifelse(logFC > 0 & adj.P.Val <pVal, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<pVal, "DOWN", "NOT DE"))) %>%
+  ggplot(aes(AveExpr, logFC, col = DE)) + 
+  geom_point(shape = 1, size = 1) + 
+  geom_text_repel(data = de_genes_toptable_BvT %>% 
+                    mutate(DE = ifelse(logFC > 0 & adj.P.Val <pVal, "UP", 
+                       ifelse(logFC <0 & adj.P.Val<pVal, "DOWN", "NOT DE"))) %>%
+                    rownames_to_column(), aes(label = rowname)) +
+  theme_bw() +
+  xlab("Average log-expression") +
+  ylab("Log-fold-change") +
+  ggtitle("B cell zone vs. T cell zone in Lymph node (limma-voom)") +
+  scale_color_manual(values = c("blue","gray","red")) +
+  theme(text = element_text(size=15))
+
+updn_cols <- c(RColorBrewer::brewer.pal(6, 'Greens')[2], RColorBrewer::brewer.pal(6, 'Purples')[2])
+
+de_genes_toptable_BvT %>% 
+  dplyr::select(c("logFC", "AveExpr", "P.Value", "adj.P.Val")) %>%
+  DT::datatable(caption = 'B cell zone vs. T cell zone in Lymph node (limma-voom)') %>%
+  DT::formatStyle('logFC',
+                valueColumns = 'logFC',
+                backgroundColor = DT::styleInterval(0, rev(updn_cols))) %>%
+  DT::formatSignif(1:4, digits = 4)
+
+volcanoplot(efit, style = "p-value")
+EnhancedVolcano(de_genes_toptable_BvT,
+                lab = de_genes_toptable_BvT$TargetName,
+                x='logFC',
+                y='P.Value') + theme_bw(base_size = 10)
+
+EnhancedVolcano(de_genes_toptable_BvT,
+                lab = de_genes_toptable_BvT$TargetName,
+                x='logFC',
+                y='adj.P.Val') + theme_bw(base_size = 10)
+```
+
+# 5. Gene Set Analysis
+
+## Load Gene Sets
+
+it looks like the 'msigdb' R package uses the old mouse MsigDB translation from WEHI. The hallmark sets from this package contain many more genes than are listed for mouse hallmarks on the the current MsigDB website. The sets downloaded in gmt symbol format from the MsigDB website have set lengths which match, so I use those.
+
+```{r}
+
+hallmarkSet <- getGmt("genesets//mh.all.v2023.2.Mm.symbols.gmt")
+hallmarkMeta <- hallmarkSet[c("HALLMARK_BILE_ACID_METABOLISM", "HALLMARK_CHOLESTEROL_HOMEOSTASIS", "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_GLYCOLYSIS", "HALLMARK_HEME_METABOLISM", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_XENOBIOTIC_METABOLISM")]
+
+bioCartaSet <- getGmt("genesets//m2.cp.biocarta.v2023.2.Mm.symbols.gmt")
+reactomeSet <- getGmt("genesets//m2.cp.reactome.v2023.2.Mm.symbols.gmt")
+wikiPathwaysSet <- getGmt("genesets//m2.cp.wikipathways.v2023.2.Mm.symbols.gmt")
+```
+
+### Preprocess, and check gene coverage 
+
+```{r}
+hallmark_indices <- ids2indices(lapply(hallmarkSet, geneIds), rownames(v), remove.empty = FALSE)
+names(hallmark_indices) <- sapply(hallmarkSet, setName)
+
+numMissing_hallmark <- lengths(lapply(hallmarkSet, geneIds)) - lengths(hallmark_indices)
+propMissing_hallmark <- 100 * numMissing_hallmark / lengths(lapply(hallmarkSet, geneIds))
+summary(numMissing_hallmark)
+summary(propMissing_hallmark)
+
+#these blocks should be refactored into functions
+bioCarta_indices <- ids2indices(lapply(bioCartaSet, geneIds), rownames(v), remove.empty = FALSE)
+names(bioCarta_indices) <- sapply(bioCartaSet, setName)
+
+numMissing_bioCarta <- lengths(lapply(bioCartaSet, geneIds)) - lengths(bioCarta_indices)
+propMissing_bioCarta <- 100* numMissing_bioCarta / lengths(lapply(bioCartaSet, geneIds))
+summary(numMissing_bioCarta)
+summary(propMissing_bioCarta)
+
+
+reactome_indices <- ids2indices(lapply(reactomeSet, geneIds), rownames(v), remove.empty = FALSE)
+names(reactome_indices) <- sapply(reactomeSet, setName)
+
+numMissing_reactome <- lengths(lapply(reactomeSet, geneIds)) - lengths(reactome_indices)
+propMissing_reactome <- 100* numMissing_reactome / lengths(lapply(reactomeSet, geneIds))
+summary(numMissing_reactome)
+summary(propMissing_reactome)
+reactome_indices <- reactome_indices[propMissing_reactome < 5]
+
+
+wikiPathways_indices <- ids2indices(lapply(wikiPathwaysSet, geneIds), rownames(v), remove.empty = FALSE)
+names(wikiPathways_indices) <- sapply(wikiPathwaysSet, setName)
+
+numMissing_wikiPathways <- lengths(lapply(wikiPathwaysSet, geneIds)) - lengths(wikiPathways_indices)
+propMissing_wikiPathways <- 100* numMissing_wikiPathways / lengths(lapply(wikiPathwaysSet, geneIds))
+summary(numMissing_wikiPathways)
+summary(propMissing_wikiPathways)
+wikiPathways_indices <- wikiPathways_indices[propMissing_wikiPathways < 5]
+```
+
+## ROAST
+
+```{r roast}
+#fry_indices_cat <- split(fry_indices, gsc_category[names(fry_indices)])
+nrot <- 9999
+
+tic()
+roastHallmarkResult <- limma::mroast(v, index = hallmark_indices, design = design, contrast = contrasts, nrot = nrot,robust = TRUE)
+toc()
+
+tic()
+roastBioCartaResult <- limma::mroast(v, index = bioCarta_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+tic()
+roastReactomeResult <- limma::mroast(v, index = reactome_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+tic()
+roastWikiPathwaysResult <- limma::mroast(v, index = wikiPathways_indices, design = design, contrast = contrasts, nrot = nrot, robust = TRUE)
+toc()
+
+```
+
+## CAMERA
+```{r camera}
+tic()
+cameraHallmarkResult <- limma::camera(v, index = hallmark_indices, contrast = contrasts)
+cameraBioCartaResult <- limma::camera(v, index = bioCarta_indices, contrast = contrasts)
+cameraReactomeResult <- limma::camera(v, index = reactome_indices, contrast = contrasts)
+cameraWikiPathwaysResult <- limma::camera(v, index = wikiPathways_indices, contrast = contrasts)
+toc()
+```
+
+## Single-Sample Scoring
+```{r}
+rankedGenes <- rankGenes(summedRaw_tmmPCKP)
+
+hallmarkSingscores <- multiScore(rankedGenes, upSetColc = hallmarkSet, knownDirection = FALSE)
+reactomeSingscores <- multiScore(rankedGenes, upSetColc = reactomeSet, knownDirection = FALSE)
+
+hallmarkSingscore.pca <- prcomp(t(hallmarkSingscores$Scores), scale=TRUE)
+
+fviz_eig(hallmarkSingscore.pca)
+fviz_pca_ind(hallmarkSingscore.pca, repel=TRUE, title="Hallmark Singscore PCA")
+
+reactomeSingscore.pca <- prcomp(t(reactomeSingscores$Scores), scale=TRUE)
+reactomeSingscore.var <- get_pca_var(reactomeSingscore.pca)
+
+fviz_eig(reactomeSingscore.pca)
+fviz_pca_ind(reactomeSingscore.pca, repel=TRUE, title="Reactome Singscore PCA")
+
+#investigate score relation to PCs
+hallmarkSingscore.loadings <- as_tibble(hallmarkSingscore.pca$rotation, rownames = "pathway")
+reactomeSingscore.loadings <- as_tibble(reactomeSingscore.pca$rotation, rownames = "pathway")
+
+top_paths_hallmark <- hallmarkSingscore.loadings %>% 
+  # select only the PCs we are interested in
+  dplyr::select(pathway, PC1) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:20) %>% 
+  # pull the pathway column as a vector
+  #pull(pathway) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+top_paths_reactome <- reactomeSingscore.loadings %>% 
+  # select only the PCs we are interested in
+  dplyr::select(pathway, PC1) %>%
+  # convert to a "long" format
+  pivot_longer(matches("PC"), names_to = "PC", values_to = "loading") %>% 
+  # for each PC
+  group_by(PC) %>% 
+  # arrange by descending order of loading
+  arrange(desc(abs(loading))) %>% 
+  # take the 10 top rows
+  slice(1:20) %>% 
+  # pull the pathway column as a vector
+  #pull(pathway) %>% 
+  # ensure only unique genes are retained
+  unique()
+
+print(top_paths_hallmark)
+print(top_paths_reactome)
+```
+### Code for plotting vs flim features
+```{r}
+joinSingFlim <- function(singMultiScoreResult, flimParams, prefix) {
+  singMultiScoreResult <- as.data.frame(t(singMultiScoreResult$Scores))
+  
+  singMultiScoreResult <- rownames_to_column(singMultiScoreResult, var="rowname")
+  singMultiScoreResult$sample <- parse_number(singMultiScoreResult$rowname)
+  
+  outTable <- left_join(singMultiScoreResult, flimParams, by="sample")
+  
+  #outTable <- pivot_longer(outTable, cols = starts_with(prefix), names_to = "pathway", values_to = "score")
+}
+
+plotSetVsFlim <- function(joinedScores, prefix, pathwayName, flimName) {
+  pivot <- pivot_longer(joinedScores, cols = starts_with(prefix), names_to = "pathway", values_to = "score")
+  
+  plotSubset <- subset(pivot, pivot$pathway==pathwayName)
+  
+  #browser()
+  subset.lm <- lm(glue::glue('{flimName} ~ score'), plotSubset)
+  
+  ggplot(plotSubset, aes(x=score, y=!!ensym(flimName), color=Group)) + geom_point() + theme_bw() + ggtitle(pathwayName) + geom_abline(slope = coef(subset.lm)[["score"]], intercept=coef(subset.lm)[["(Intercept)"]])
+  
+}
+
+getSetVsFlimStats <-  function(joinedScores, prefix, pathwayName, flimName) {
+  pivot <- pivot_longer(joinedScores, cols = starts_with(prefix), names_to = "pathway", values_to = "score")
+  
+  plotSubset <- subset(pivot, pivot$pathway==pathwayName)
+  subset.lm <- lm(glue::glue('{flimName} ~ score'), plotSubset)
+  
+}
+
+reactomeSingscore.joined <- joinSingFlim(reactomeSingscores, flimParams)
+hallmarkSingscore.joined <- joinSingFlim(hallmarkSingscores, flimParams)
+
+
+plotSetVsFlim(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "LT2mean")
+summary(getSetVsFlimStats(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "LT2mean"))
+
+plotSetVsFlim(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_FATTY_ACID_METABOLISM", "LT2mean")
+summary(getSetVsFlimStats(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_FATTY_ACID_METABOLISM", "LT2mean"))
+```
+
 
