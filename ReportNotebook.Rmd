@@ -44,7 +44,7 @@ library(EnhancedVolcano)
 
 library(singscore)
 library(factoextra)
-library(ggpmisc)
+#library(ggpmisc)
 ```
 
 # 0. Data Import
@@ -268,6 +268,8 @@ highbcv_df <- bcv_df[highbcv, ]
 points(highbcv_df$AveLogCPM, highbcv_df$BCV, col = "red")
 text(highbcv_df$AveLogCPM, highbcv_df$BCV, labels = highbcv_df$gene_id, pos = 4)
 
+print(highbcv_df)
+
 v <- voom(dge_tmmPCKP, design, plot = TRUE)
 ```
 
@@ -280,12 +282,11 @@ fit_contrast <- contrasts.fit(fit, contrasts = contrasts)
 efit <- eBayes(fit_contrast, robust = TRUE)
 
 pVal <- 0.05
+logFC <- 1
 
 results_efit <- decideTests(efit, p.value = pVal)
 summary(results_efit)
 
-limma::plotMA(v)
-limma::plotMA(fit, main="Treatment vs. Control comparison")
 
 de_results_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf)
 de_genes_toptable_BvT <- topTable(efit, coef = 1, sort.by = "P", n = Inf, p.value = pVal)
@@ -310,7 +311,7 @@ updn_cols <- c(RColorBrewer::brewer.pal(6, 'Greens')[2], RColorBrewer::brewer.pa
 
 de_genes_toptable_BvT %>% 
   dplyr::select(c("logFC", "AveExpr", "P.Value", "adj.P.Val")) %>%
-  DT::datatable(caption = 'B cell zone vs. T cell zone in Lymph node (limma-voom)') %>%
+  DT::datatable(caption = 'Treatment vs. Control, PanCK+ Segments (limma-voom)') %>%
   DT::formatStyle('logFC',
                 valueColumns = 'logFC',
                 backgroundColor = DT::styleInterval(0, rev(updn_cols))) %>%
@@ -325,7 +326,9 @@ EnhancedVolcano(de_genes_toptable_BvT,
 EnhancedVolcano(de_genes_toptable_BvT,
                 lab = de_genes_toptable_BvT$TargetName,
                 x='logFC',
-                y='adj.P.Val') + theme_bw(base_size = 10)
+                y='adj.P.Val', labSize = 4, drawConnectors = TRUE) + theme_bw(base_size = 10)
+
+print(length(de_genes_toptable_BvT %>% filter(between(logFC, -1, 1)) %>% filter(between(adj.P.Val, 0, 0.05))))
 ```
 
 # 5. Gene Set Analysis
@@ -475,6 +478,31 @@ top_paths_reactome <- reactomeSingscore.loadings %>%
 
 print(top_paths_hallmark)
 print(top_paths_reactome)
+
+getPvalsPathway <- function(upSetName, setCollection, rankedGenes, singscoreObject, numPerms) {
+  #browser()
+  nullResult <- generateNull(setCollection[[upSetName]], rankData = rankedGenes, knownDirection = FALSE)
+  
+  scoredf <- as.data.frame(cbind(singscoreObject$Scores[upSetName,],singscoreObject$Dispersions[upSetName,]))
+  colnames(scoredf) <- c("TotalScore", "TotalDispersion")
+  
+  pVals <- getPvals(nullResult, scoredf)
+  
+  out <- list(nullResult=nullResult, pVals=pVals, scores=scoredf)
+}
+
+hallmarkSingVals <- getPvalsPathway("HALLMARK_GLYCOLYSIS", hallmarkSet, rankedGenes, hallmarkSingscores, 1000)
+
+plotRankDensity(rankedGenes[,5,drop=FALSE], hallmarkSet[["HALLMARK_GLYCOLYSIS"]])
+
+plotNull(permuteResult=hallmarkSingVals$nullResult, scoredf=hallmarkSingVals$scores, pvals=hallmarkSingVals$pVals, sampleNames=names(hallmarkSingVals$pVals))
+
+testSingVal <- getPvalsPathway("REACTOME_VISUAL_PHOTOTRANSDUCTION", reactomeSet, rankedGenes, reactomeSingscores, 1000)
+
+plotNull(permuteResult=testSingVal$nullResult, scoredf=testSingVal$scores, pvals=testSingVal$pVals, sampleNames=names(testSingVal$pVals))
+
+plotRankDensity(rankedGenes[,8,drop=FALSE], reactomeSet[["REACTOME_VISUAL_PHOTOTRANSDUCTION"]])
+
 ```
 ### Code for plotting vs flim features
 ```{r}
@@ -519,5 +547,44 @@ summary(getSetVsFlimStats(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_OXIDAT
 plotSetVsFlim(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_FATTY_ACID_METABOLISM", "LT2mean")
 summary(getSetVsFlimStats(hallmarkSingscore.joined, "HALLMARK", "HALLMARK_FATTY_ACID_METABOLISM", "LT2mean"))
 ```
+## Try out PLS for singscores
+```{r}
+colMatrxPCKP <- as.data.frame(colData(summedRaw_tmmPCKP)) %>% left_join(flimParams, by = "sample", suffix=c("",".y")) %>% dplyr::select(-ends_with(".y"))
+
+seletedFlimParams <- subset(colMatrxPCKP, select = c(LT2mean, LT3mean))
+
+hallmarkSingscore.spls <- spls(t(hallmarkSingscores$Scores), seletedFlimParams,  mode = "regression", scale = TRUE, ncomp = 2, keepX = 50, keepY = 2)
+
+variableImportance <- as.data.frame(vip(hallmarkSingscore.spls)) %>% arrange(desc(comp1))
+head(variableImportance, n = 50)
+
+plotIndiv(hallmarkSingscore.spls, group=colMatrxPCKP$Group, legend = TRUE)
+plotLoadings(hallmarkSingscore.spls, method = 'mean', contrib = 'max')
+```
+
+```{r}
+hallmarkSingscore.splsda <- splsda(t(hallmarkSingscores$Scores), as.factor(colMatrxPCKP$Group), keepX = 50, scale = TRUE, ncomp=2)
+
+hallmarkSingscore.splsda$prop_expl_var
+
+plotLoadings(hallmarkSingscore.splsda, method = 'mean', contrib = 'max')  
+
+variableImportanceGroup <- as.data.frame(vip(hallmarkSingscore.splsda)) %>% arrange(desc(comp1))
+head(variableImportanceGroup, n = 50)
+
+reactomeSingscore.splsda <- splsda(t(reactomeSingscores$Scores), as.factor(colMatrxPCKP$Group), keepX = 50, scale = TRUE, ncomp=2)
+
+reactomeSingscore.splsda$prop_expl_var
+
+plotLoadings(reactomeSingscore.splsda, method = 'mean', contrib = 'max', name.var = substr(colnames(t(reactomeSingscores$Scores)),10,25))
+
+variableImportanceGroup <- as.data.frame(vip(reactomeSingscore.splsda)) %>% arrange(desc(comp1))
+head(variableImportanceGroup, n = 50)
+```
+
+# Data Export Step
+```{r}
+write.csv(de_results_BvT, file = "Report_Results/fullDeResults.csv")
 
 
+```
