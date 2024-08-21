@@ -206,11 +206,10 @@ top_genes_tmm <- pc_loadings_tmm %>%
   # arrange by descending order of loading
   arrange(desc(abs(loading))) %>% 
   # take the 10 top rows
-  slice(1:20) %>% 
+  dplyr::slice(1:20) %>% 
   # pull the gene column as a vector
-  pull(gene) %>% 
+  pull(gene)
   # ensure only unique genes are retained
-  unique()
 
 dput(top_genes_tmm)
 
@@ -350,6 +349,7 @@ wikiPathwaysSet <- getGmt("genesets//m2.cp.wikipathways.v2023.2.Mm.symbols.gmt")
 ### Preprocess, and check gene coverage 
 
 ```{r}
+print("Hallmark")
 hallmark_indices <- ids2indices(lapply(hallmarkSet, geneIds), rownames(v), remove.empty = FALSE)
 names(hallmark_indices) <- sapply(hallmarkSet, setName)
 
@@ -358,6 +358,7 @@ propMissing_hallmark <- 100 * numMissing_hallmark / lengths(lapply(hallmarkSet, 
 summary(numMissing_hallmark)
 summary(propMissing_hallmark)
 
+print("Biocarta")
 #these blocks should be refactored into functions
 bioCarta_indices <- ids2indices(lapply(bioCartaSet, geneIds), rownames(v), remove.empty = FALSE)
 names(bioCarta_indices) <- sapply(bioCartaSet, setName)
@@ -367,7 +368,7 @@ propMissing_bioCarta <- 100* numMissing_bioCarta / lengths(lapply(bioCartaSet, g
 summary(numMissing_bioCarta)
 summary(propMissing_bioCarta)
 
-
+print("Reactome")
 reactome_indices <- ids2indices(lapply(reactomeSet, geneIds), rownames(v), remove.empty = FALSE)
 names(reactome_indices) <- sapply(reactomeSet, setName)
 
@@ -377,7 +378,7 @@ summary(numMissing_reactome)
 summary(propMissing_reactome)
 reactome_indices <- reactome_indices[propMissing_reactome < 5]
 
-
+print("WikiPathways")
 wikiPathways_indices <- ids2indices(lapply(wikiPathwaysSet, geneIds), rownames(v), remove.empty = FALSE)
 names(wikiPathways_indices) <- sapply(wikiPathwaysSet, setName)
 
@@ -454,7 +455,7 @@ top_paths_hallmark <- hallmarkSingscore.loadings %>%
   # arrange by descending order of loading
   arrange(desc(abs(loading))) %>% 
   # take the 10 top rows
-  slice(1:20) %>% 
+  dplyr::slice(1:20) %>% 
   # pull the pathway column as a vector
   #pull(pathway) %>% 
   # ensure only unique genes are retained
@@ -470,7 +471,7 @@ top_paths_reactome <- reactomeSingscore.loadings %>%
   # arrange by descending order of loading
   arrange(desc(abs(loading))) %>% 
   # take the 10 top rows
-  slice(1:20) %>% 
+  dplyr::slice(1:20) %>% 
   # pull the pathway column as a vector
   #pull(pathway) %>% 
   # ensure only unique genes are retained
@@ -559,7 +560,7 @@ variableImportance <- as.data.frame(vip(hallmarkSingscore.spls)) %>% arrange(des
 head(variableImportance, n = 50)
 
 plotIndiv(hallmarkSingscore.spls, group=colMatrxPCKP$Group, legend = TRUE)
-plotLoadings(hallmarkSingscore.spls, method = 'mean', contrib = 'max')
+#plotLoadings(hallmarkSingscore.spls, method = 'mean', contrib = 'max')
 ```
 
 ```{r}
@@ -584,7 +585,19 @@ head(variableImportanceGroup, n = 50)
 
 # Data Export Step
 ```{r}
+#write gene-level DE to file
 write.csv(de_results_BvT, file = "Report_Results/fullDeResults.csv")
+
+#write gene set results to files
+write.csv(roastHallmarkResult %>% arrange(FDR.Mixed), file = "Report_Results/roastHallmarkResult.csv")
+write.csv(roastBioCartaResult %>% arrange(FDR.Mixed), file = "Report_Results/roastBioCartaResult.csv")
+write.csv(roastReactomeResult %>% arrange(FDR.Mixed), file = "Report_Results/roastReactomeResult.csv")
+write.csv(roastWikiPathwaysResult %>% arrange(FDR.Mixed), file = "Report_Results/roastWikiPathwaysResult.csv")
+
+write.csv(cameraHallmarkResult %>% arrange(FDR), file = "Report_Results/cameraHallmarkResult.csv")
+write.csv(cameraBioCartaResult %>% arrange(FDR), file = "Report_Results/cameraBioCartaResult.csv")
+write.csv(cameraReactomeResult %>% arrange(FDR), file = "Report_Results/cameraReactomeResult.csv")
+write.csv(cameraWikiPathwaysResult %>% arrange(FDR), file = "Report_Results/cameraWikiPathwaysResult.csv")
 
 
 ```
