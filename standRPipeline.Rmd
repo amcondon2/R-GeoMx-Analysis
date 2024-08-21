@@ -362,4 +362,3 @@ res <- spatialdecon(norm = spd$normCount,
 heatmap(t(res$beta), cexCol = 0.5, cexRow = 0.7)
 
 ```
-
